@@ -2,3 +2,8 @@
 *.db
 *.pyc
 __pycache__/
+
+# Секреты
+.env
+.env.*
+*.env
