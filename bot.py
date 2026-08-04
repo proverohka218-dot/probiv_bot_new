@@ -1,12 +1,11 @@
 import asyncio
 import re
-import sqlite3
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice, PreCheckoutQuery, BufferedInputFile
 
-from config import BOT_TOKEN, PRICE_STARS, DB_PATH
+from config import BOT_TOKEN, PRICE_STARS
 from database import (
     init_db,
     is_subscription_active,
@@ -40,36 +39,6 @@ def main_menu():
             [InlineKeyboardButton(text="👤 Моя подписка", callback_data="my_subscription")]
         ]
     )
-
-# ===== ПРОВЕРКА БЕСПЛАТНЫХ ЗАПРОСОВ =====
-def get_free_queries(user_id: int) -> int:
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.execute('SELECT free_queries FROM users WHERE user_id = ?', (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        return row[0]
-    return 2  # 2 бесплатных запроса по умолчанию
-
-def decrement_free_queries(user_id: int):
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute('''
-        INSERT INTO users (user_id, free_queries) VALUES (?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET free_queries = free_queries - 1
-    ''', (user_id, 2))
-    conn.commit()
-    conn.close()
-
-def init_free_queries_table():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            free_queries INTEGER DEFAULT 2
-        )
-    ''')
-    conn.commit()
-    conn.close()
 
 # ===== ГЕНЕРАЦИЯ HTML-ОТЧЁТА =====
 def generate_html_report(query: str, db_results: list, osint_result: dict) -> str:
@@ -136,7 +105,7 @@ async def osint_search(query: str) -> dict:
         qtype = 'unknown'
 
     cache_key = get_cache_key(query, qtype)
-    cached = get_cached_result(cache_key)
+    cached = await get_cached_result(cache_key)
     if cached:
         return cached
 
@@ -157,7 +126,7 @@ async def osint_search(query: str) -> dict:
             extra = {}
         result['result'] = extra
 
-    save_to_cache(cache_key, qtype, query, result)
+    await save_to_cache(cache_key, qtype, query, result)
     return result
 
 # ===== ОБРАБОТЧИКИ =====
@@ -192,7 +161,7 @@ async def add_promo_command(message: types.Message):
     try:
         days = int(args[1])
         code = generate_promo_code()
-        add_promo_code(code, days, message.from_user.id)
+        await add_promo_code(code, days, message.from_user.id)
         await message.answer(f"✅ **Промокод создан!**\n\n🎟️ Код: `{code}`\n📅 Дней: {days}", parse_mode="Markdown")
     except ValueError:
         await message.answer("❌ Введите число дней.")
@@ -203,12 +172,12 @@ async def handle_text(message: types.Message):
         return
     text = message.text.strip().upper()
     if len(text) == 8 and text.isalnum():
-        duration = get_promo_duration(text)
+        duration = await get_promo_duration(text)
         if duration > 0:
-            activate_subscription(message.from_user.id, days=duration, promo_code=text)
+            await activate_subscription(message.from_user.id, days=duration, promo_code=text)
             await message.answer(f"✅ **Промокод активирован!**\n\nПодписка на {duration} дней оформлена.", parse_mode="Markdown", reply_markup=main_menu())
             return
-    if not is_subscription_active(message.from_user.id):
+    if not await is_subscription_active(message.from_user.id):
         await message.answer(
             f"🔒 **Доступ ограничен**\n\n"
             f"Купите подписку за {PRICE_STARS} Stars или активируйте промокод.\n"
@@ -229,7 +198,7 @@ async def search_callback(callback: types.CallbackQuery):
         return
     
     # Проверка: есть ли подписка ИЛИ остались бесплатные запросы
-    if not is_subscription_active(callback.from_user.id):
+    if not await is_subscription_active(callback.from_user.id):
         free_q = get_free_queries(callback.from_user.id)
         if free_q <= 0:
             await callback.message.answer(
@@ -248,9 +217,9 @@ async def search_callback(callback: types.CallbackQuery):
         await callback.message.answer("❌ Сначала отправь данные.")
         return
     msg = await callback.message.answer("⏳ Ищу в базе и открытых источниках...")
-    db_results = search_db(query)
+    db_results = await search_db(query)
+    await log_search(callback.from_user.id, query, len(db_results))
     osint_result = await osint_search(query)
-    log_search(callback.from_user.id, query, len(db_results))
     response_text = f"🔍 **Результаты по запросу:** `{query}`\n\n"
     if db_results:
         response_text += f"📊 Найдено в БД: {len(db_results)} записей\n"
@@ -283,10 +252,12 @@ async def search_callback(callback: types.CallbackQuery):
 async def stats_callback(callback: types.CallbackQuery):
     await callback.answer("⏳ Загрузка статистики...")
     try:
-        conn = sqlite3.connect(DB_PATH)
-        count = conn.execute('SELECT COUNT(*) FROM people').fetchone()[0]
-        history_count = conn.execute('SELECT COUNT(*) FROM search_history').fetchone()[0]
-        conn.close()
+        import asyncpg
+        from config import DATABASE_URL
+        conn = await asyncpg.connect(DATABASE_URL)
+        count = await conn.fetchval('SELECT COUNT(*) FROM people')
+        history_count = await conn.fetchval('SELECT COUNT(*) FROM search_history')
+        await conn.close()
         await callback.message.answer(
             f"📊 **Статистика**\n\n"
             f"👤 Записей в БД: {count}\n"
@@ -301,7 +272,7 @@ async def stats_callback(callback: types.CallbackQuery):
 async def my_subscription(callback: types.CallbackQuery):
     await callback.answer("⏳ Проверяю подписку...")
     try:
-        info = get_subscription_info(callback.from_user.id)
+        info = await get_subscription_info(callback.from_user.id)
         free_q = get_free_queries(callback.from_user.id)
         if info['active']:
             await callback.message.answer(
@@ -346,7 +317,7 @@ async def pre_checkout_query(query: PreCheckoutQuery):
 
 @dp.message(lambda message: message.successful_payment)
 async def successful_payment(message: types.Message):
-    activate_subscription(message.from_user.id, days=30)
+    await activate_subscription(message.from_user.id, days=30)
     await message.answer("✅ **Подписка активирована!**", parse_mode="Markdown", reply_markup=main_menu())
 
 # ===== ПРОМОКОД =====
@@ -355,11 +326,47 @@ async def promo_prompt(callback: types.CallbackQuery):
     await callback.answer()
     await callback.message.answer("🎟️ **Введите промокод** (8 символов)", parse_mode="Markdown")
 
+# ===== БЕСПЛАТНЫЕ ЗАПРОСЫ =====
+def get_free_queries(user_id: int) -> int:
+    import sqlite3
+    from config import DB_PATH
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.execute('SELECT free_queries FROM users WHERE user_id = ?', (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return row[0]
+    return 2
+
+def decrement_free_queries(user_id: int):
+    import sqlite3
+    from config import DB_PATH
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('''
+        INSERT INTO users (user_id, free_queries) VALUES (?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET free_queries = free_queries - 1
+    ''', (user_id, 2))
+    conn.commit()
+    conn.close()
+
+def init_free_queries_table():
+    import sqlite3
+    from config import DB_PATH
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            free_queries INTEGER DEFAULT 2
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
 # ===== ЗАПУСК =====
 async def main():
-    init_db()
+    await init_db()
     init_free_queries_table()
-    print("✅ Бот PROBIV+OSINT v7.0 (SQLite) запущен!")
+    print("✅ Бот PROBIV+OSINT v7.0 (TigerData) запущен!")
     print(f"💰 Цена подписки: {PRICE_STARS} Stars за 30 дней")
     print("🎁 У каждого пользователя 2 бесплатных запроса")
     await dp.start_polling(bot)
