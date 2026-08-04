@@ -1,0 +1,151 @@
+import asyncpg
+import hashlib
+import random
+import string
+from datetime import datetime, timedelta
+from config import DATABASE_URL
+
+# ===== ПУЛ СОЕДИНЕНИЙ =====
+pool = None
+
+async def init_db():
+    global pool
+    if pool is None:
+        pool = await asyncpg.create_pool(DATABASE_URL)
+        async with pool.acquire() as conn:
+            # Таблица подписок
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS subscriptions (
+                    user_id BIGINT PRIMARY KEY,
+                    subscription_end TIMESTAMP,
+                    promo_code TEXT
+                )
+            ''')
+            # Таблица промокодов
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS promocodes (
+                    code TEXT PRIMARY KEY,
+                    duration_days INTEGER,
+                    created_by INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            # Таблица истории поиска
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS search_history (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    query TEXT,
+                    result_count INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            # Таблица кеша OSINT
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS osint_cache (
+                    query_hash TEXT PRIMARY KEY,
+                    query_type TEXT,
+                    query_value TEXT,
+                    result JSONB,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            # Таблица people (основная БД)
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS people (
+                    id SERIAL PRIMARY KEY,
+                    phone VARCHAR(20),
+                    email VARCHAR(255),
+                    full_name TEXT,
+                    address TEXT,
+                    social_vk VARCHAR(50),
+                    social_tg VARCHAR(50),
+                    social_ok VARCHAR(50),
+                    passport VARCHAR(20),
+                    birth_date TEXT
+                )
+            ''')
+            print("✅ Supabase готов (все таблицы созданы)")
+
+# ===== ПОДПИСКИ =====
+async def is_subscription_active(user_id: int) -> bool:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow('SELECT subscription_end FROM subscriptions WHERE user_id = $1', user_id)
+        if row:
+            return row['subscription_end'] > datetime.now()
+    return False
+
+async def activate_subscription(user_id: int, days: int = 30, promo_code: str = None):
+    end_date = datetime.now() + timedelta(days=days)
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO subscriptions (user_id, subscription_end, promo_code)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (user_id) DO UPDATE SET subscription_end = $2, promo_code = $3
+        ''', user_id, end_date, promo_code)
+
+async def get_subscription_info(user_id: int) -> dict:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow('SELECT subscription_end, promo_code FROM subscriptions WHERE user_id = $1', user_id)
+        if row:
+            days_left = (row['subscription_end'] - datetime.now()).days
+            return {'active': days_left > 0, 'days_left': max(0, days_left), 'promo_code': row['promo_code']}
+    return {'active': False, 'days_left': 0, 'promo_code': None}
+
+# ===== ПРОМОКОДЫ =====
+def generate_promo_code():
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+
+async def add_promo_code(code: str, duration_days: int, created_by: int):
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO promocodes (code, duration_days, created_by)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (code) DO NOTHING
+        ''', code, duration_days, created_by)
+
+async def get_promo_duration(code: str) -> int:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow('SELECT duration_days FROM promocodes WHERE code = $1', code)
+        if row:
+            return row['duration_days']
+    return 0
+
+# ===== ПОИСК В БД =====
+async def search_db(query: str):
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT * FROM people 
+            WHERE phone ILIKE $1 OR email ILIKE $1 OR full_name ILIKE $1
+            LIMIT 20
+        ''', f'%{query}%')
+        return [dict(row) for row in rows]
+
+async def log_search(user_id: int, query: str, result_count: int):
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO search_history (user_id, query, result_count)
+            VALUES ($1, $2, $3)
+        ''', user_id, query, result_count)
+
+# ===== КЕШ OSINT =====
+def get_cache_key(query: str, qtype: str) -> str:
+    return hashlib.md5(f"{qtype}:{query}".encode()).hexdigest()
+
+async def get_cached_result(query_hash: str) -> dict:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow('''
+            SELECT result FROM osint_cache 
+            WHERE query_hash = $1 AND created_at > NOW() - INTERVAL '24 hours'
+        ''', query_hash)
+        if row:
+            return row['result']
+    return None
+
+async def save_to_cache(query_hash: str, qtype: str, query: str, result: dict):
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO osint_cache (query_hash, query_type, query_value, result)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (query_hash) DO UPDATE SET result = $4, created_at = NOW()
+        ''', query_hash, qtype, query, result)
