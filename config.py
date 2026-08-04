@@ -8,6 +8,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")  # ← НОВОЕ
 
 PRICE_STARS = 500
 
+DB_PATH = os.path.join(os.path.dirname(__file__), "probiv.db")
+
 API_KEYS = {
     "truecaller": os.getenv("TRUECALLER_KEY", ""),
     "numverify": os.getenv("NUMVERIFY_KEY", ""),
