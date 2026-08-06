@@ -48,11 +48,7 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Отчёт по запросу: {query}</title>
     <style>
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: #0a0a0a;
@@ -60,21 +56,16 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
             padding: 30px;
         }}
         .container {{
-            max-width: 1000px;
+            max-width: 1100px;
             margin: 0 auto;
             background: #1a1a1a;
             padding: 30px;
             border-radius: 16px;
             border: 1px solid #333;
             box-shadow: 0 8px 24px rgba(0,0,0,0.8);
+            overflow-x: auto;
         }}
-        h1 {{
-            color: #00ff88;
-            border-bottom: 3px solid #00ff88;
-            padding-bottom: 15px;
-            font-size: 28px;
-            margin-bottom: 20px;
-        }}
+        h1 {{ color: #00ff88; border-bottom: 3px solid #00ff88; padding-bottom: 15px; font-size: 28px; }}
         .query-box {{
             background: #2a2a2a;
             padding: 15px;
@@ -84,11 +75,7 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
             margin: 20px 0;
             border-left: 4px solid #00ff88;
         }}
-        .timestamp {{
-            color: #888;
-            font-size: 14px;
-            margin-bottom: 25px;
-        }}
+        .timestamp {{ color: #888; font-size: 14px; margin-bottom: 25px; }}
         .section {{
             margin: 25px 0;
             padding: 20px;
@@ -96,34 +83,21 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
             border-radius: 12px;
             border-left: 5px solid #00ff88;
         }}
-        .section h2 {{
-            margin-top: 0;
-            color: #00ff88;
-            font-size: 20px;
-            margin-bottom: 15px;
-        }}
+        .section h2 {{ color: #00ff88; font-size: 20px; margin-bottom: 15px; }}
         table {{
             width: 100%;
             border-collapse: collapse;
-            margin-top: 10px;
+            table-layout: fixed;
         }}
         th, td {{
-            padding: 12px 15px;
+            padding: 12px 10px;
             text-align: left;
             border-bottom: 1px solid #333;
+            word-wrap: break-word;
         }}
-        th {{
-            background: #2a2a2a;
-            color: #00ff88;
-            font-weight: bold;
-        }}
-        td {{
-            color: #ccc;
-        }}
-        .empty {{
-            color: #888;
-            font-style: italic;
-        }}
+        th {{ background: #2a2a2a; color: #00ff88; font-weight: bold; }}
+        td {{ color: #ccc; }}
+        .empty {{ color: #888; font-style: italic; }}
         .vk-link {{
             display: inline-block;
             margin-top: 10px;
@@ -135,10 +109,7 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
             font-weight: bold;
             transition: 0.3s;
         }}
-        .vk-link:hover {{
-            background: #1e4f6b;
-            text-decoration: underline;
-        }}
+        .vk-link:hover {{ background: #1e4f6b; text-decoration: underline; }}
         .footer {{
             margin-top: 40px;
             padding-top: 20px;
@@ -147,32 +118,55 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
             color: #555;
             text-align: center;
         }}
-        .footer span {{
-            color: #00ff88;
-        }}
+        .footer span {{ color: #00ff88; }}
+        .col-id {{ width: 5%; }}
+        .col-name {{ width: 25%; }}
+        .col-phone {{ width: 20%; }}
+        .col-email {{ width: 20%; }}
+        .col-address {{ width: 20%; }}
+        .col-vk {{ width: 10%; }}
+        .osint-item {{ margin: 5px 0; }}
     </style>
 </head>
 <body>
 <div class="container">
     <h1>🔍 ОТЧЁТ ПО ЗАПРОСУ</h1>
     <div class="query-box">📌 {query}</div>
-    <div class="timestamp">🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+    <div class="timestamp">📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
 
     <div class="section">
         <h2>📊 БАЗА ДАННЫХ</h2>
         <table>
-            <tr><th>#</th><th>ФИО</th><th>Телефон</th><th>Email</th><th>Адрес</th><th>VK</th></tr>
+            <colgroup>
+                <col class="col-id">
+                <col class="col-name">
+                <col class="col-phone">
+                <col class="col-email">
+                <col class="col-address">
+                <col class="col-vk">
+            </colgroup>
+            <tr>
+                <th>#</th>
+                <th>ФИО</th>
+                <th>Телефон</th>
+                <th>Email</th>
+                <th>Адрес</th>
+                <th>VK</th>
+            </tr>
 """
 
     if db_results:
         for i, row in enumerate(db_results[:20], 1):
-            vk_link = ""
+            vk_link = "—"
             if row.get('social_vk'):
-                vk_link = f'<a href="https://vk.com/{row["social_vk"]}" target="_blank" style="color:#00ff88;">{row["social_vk"]}</a>'
+                vk_id = row['social_vk']
+                if str(vk_id).isdigit():
+                    vk_link = f'<a href="https://vk.com/id{vk_id}" target="_blank" style="color:#00ff88;text-decoration:none;">id{vk_id}</a>'
+                else:
+                    vk_link = f'<a href="https://vk.com/{vk_id}" target="_blank" style="color:#00ff88;text-decoration:none;">{vk_id}</a>'
             elif row.get('domain'):
-                vk_link = f'<a href="https://vk.com/{row["domain"]}" target="_blank" style="color:#00ff88;">{row["domain"]}</a>'
-            else:
-                vk_link = "—"
+                vk_id = row['domain']
+                vk_link = f'<a href="https://vk.com/{vk_id}" target="_blank" style="color:#00ff88;text-decoration:none;">{vk_id}</a>'
 
             html += f"""
             <tr>
@@ -201,8 +195,6 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
             html += f'<div class="osint-item">📞 Truecaller: <b>{osint_data["truecaller"]["name"]}</b> ({osint_data["truecaller"].get("country", "—")})</div>'
         if 'sherlock' in osint_data and osint_data['sherlock'] and osint_data['sherlock'] != ['Не найдено']:
             html += '<div class="osint-item">🔎 Sherlock: <b>' + ', '.join(osint_data['sherlock'][:5]) + '</b></div>'
-        if 'numverify' in osint_data and osint_data['numverify'].get('valid'):
-            html += f'<div class="osint-item">📞 Numverify: {osint_data["numverify"].get("country", "—")}, {osint_data["numverify"].get("location", "—")}</div>'
         html += '</div>'
     else:
         html += '<div class="section"><h2>📡 OSINT</h2><p class="empty">❌ Данные не найдены</p></div>'
@@ -210,9 +202,14 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
     if db_results:
         for row in db_results[:1]:
             if row.get('social_vk'):
-                html += f'<div style="text-align:center;margin:20px 0;"><a href="https://vk.com/{row["social_vk"]}" target="_blank" class="vk-link">🔗 Открыть профиль VK</a></div>'
+                vk_id = row['social_vk']
+                if str(vk_id).isdigit():
+                    html += f'<div style="text-align:center;margin:20px 0;"><a href="https://vk.com/id{vk_id}" target="_blank" class="vk-link">🔗 Открыть профиль VK</a></div>'
+                else:
+                    html += f'<div style="text-align:center;margin:20px 0;"><a href="https://vk.com/{vk_id}" target="_blank" class="vk-link">🔗 Открыть профиль VK</a></div>'
             elif row.get('domain'):
-                html += f'<div style="text-align:center;margin:20px 0;"><a href="https://vk.com/{row["domain"]}" target="_blank" class="vk-link">🔗 Открыть профиль VK</a></div>'
+                vk_id = row['domain']
+                html += f'<div style="text-align:center;margin:20px 0;"><a href="https://vk.com/{vk_id}" target="_blank" class="vk-link">🔗 Открыть профиль VK</a></div>'
 
     html += """
     <div class="footer">
