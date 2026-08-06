@@ -1,10 +1,12 @@
-import openosint
+import subprocess
 
-async def run_osint(query: str) -> dict:
+async def run_osint(query: str) -> str:
     """
-    Запускает OpenOSINT-агента по запросу пользователя.
-    Возвращает словарь с результатами.
+    Запускает OpenOSINT через командную строку.
     """
-    agent = openosint.Agent()
-    result = await agent.investigate(query)
-    return result
+    result = subprocess.run(
+        ["openosint", query],
+        capture_output=True,
+        text=True
+    )
+    return result.stdout
