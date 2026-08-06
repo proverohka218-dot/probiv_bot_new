@@ -19,16 +19,16 @@ from database import (
     get_cache_key,
     get_cached_result,
     save_to_cache,
+    get_free_queries,
+    decrement_free_queries,
 )
 from rate_limiter import rate_limiter
-from mega_osint import MegaOSINT
+from osint_agent import run_osint  # <--- ЗАМЕНА
 
-# ===== ИНИЦИАЛИЗАЦИЯ =====
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 user_last_query = {}
 
-# ===== КЛАВИАТУРА =====
 def main_menu():
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -40,7 +40,6 @@ def main_menu():
         ]
     )
 
-# ===== ГЕНЕРАЦИЯ HTML-ОТЧЁТА =====
 def generate_html_report(query: str, db_results: list, osint_result: dict) -> str:
     html = f"""<!DOCTYPE html>
 <html>
@@ -68,27 +67,14 @@ th{{background:#2a2a2a;color:#00ff88;}}
     else:
         html += '<div class="section"><p>❌ В базе ничего не найдено</p></div>'
 
-    osint_data = osint_result.get('result', {})
-    if osint_data:
-        html += '<div class="section"><h2>📡 OSINT</h2>'
-        tg = osint_data.get('telegram_phone', {}) or osint_data.get('telegram_username', {})
-        if tg.get('exists'):
-            html += f'<p>📱 Telegram: ✅ @{tg.get("username", "—")}</p>'
-        tc = osint_data.get('truecaller', {})
-        if tc.get('name') and tc['name'] != '—':
-            html += f'<p>📞 Truecaller: {tc["name"]} ({tc.get("country", "—")})</p>'
-        hibp = osint_data.get('hibp', {})
-        if hibp.get('count', 0) > 0:
-            html += f'<p>✉️ Утечек: {hibp["count"]}</p>'
-        sherlock = osint_data.get('sherlock', [])
-        if sherlock and sherlock != ['Не найдено']:
-            html += f'<p>🔎 Sherlock: {", ".join(sherlock[:5])}</p>'
+    if osint_result:
+        html += '<div class="section"><h2>📡 OSINT (OpenOSINT)</h2>'
+        html += f'<pre>{osint_result}</pre>'
         html += '</div>'
 
     html += '<div class="footer">📌 Отчёт сгенерирован PROBIV+OSINT v7.0 (ROCKET)</div></div></body></html>'
     return html
 
-# ===== OSINT-ПОИСК =====
 async def osint_search(query: str) -> dict:
     query = query.strip()
     if re.match(r'^\+?\d{10,15}$', query) or re.match(r'^8\d{10}$', query):
@@ -109,38 +95,21 @@ async def osint_search(query: str) -> dict:
     if cached:
         return cached
 
-    result = {'type': qtype, 'query': query, 'result': {}}
-    async with MegaOSINT() as osint:
-        if qtype == 'phone':
-            extra = await osint.full_search(phone=query)
-        elif qtype == 'email':
-            extra = await osint.full_search(email=query)
-        elif qtype == 'fio':
-            extra = await osint.full_search(fio=query)
-        elif qtype == 'username':
-            username = query[1:] if query.startswith('@') else query
-            extra = await osint.full_search(username=username)
-        elif qtype == 'ip':
-            extra = await osint.full_search(ip=query)
-        else:
-            extra = {}
-        result['result'] = extra
-
+    raw_result = await run_osint(query)
+    result = {'type': qtype, 'query': query, 'result': raw_result}
     await save_to_cache(cache_key, qtype, query, result)
     return result
-
-# ===== ОБРАБОТЧИКИ =====
 
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
     await message.answer(
-        f"🔍 **PROBIV+OSINT v7.0 (ROCKET)**\n\n"
+        f"🔍 **PROBIV+OSINT v7.0 (OpenOSINT)**\n\n"
         "Я ищу информацию по:\n"
-        "• 📞 Номеру телефона → Truecaller + Numverify + Telegram + Dehashed\n"
-        "• ✉️ Email → Hunter + Dehashed + HIBP\n"
-        "• 👤 ФИО → VK\n"
-        "• 🔗 Ник → Sherlock (300+ платформ) + Telegram\n"
-        "• 🌐 IP → IP2Location + AbuseIPDB\n\n"
+        "• 📞 Номеру телефона\n"
+        "• ✉️ Email\n"
+        "• 👤 ФИО\n"
+        "• 🔗 Никнейм\n"
+        "• 🌐 IP-адрес\n\n"
         f"💰 **Подписка — {PRICE_STARS} Stars за 30 дней**\n"
         "🎟️ Промокоды — введите код для активации\n\n"
         "🎁 **У тебя есть 2 БЕСПЛАТНЫХ запроса** (без подписки)\n\n"
@@ -196,10 +165,9 @@ async def search_callback(callback: types.CallbackQuery):
         wait = rate_limiter.get_wait_time(callback.from_user.id)
         await callback.message.answer(f"⏳ **Лимит запросов:** 5 в минуту.\nПодожди **{wait} секунд**.", parse_mode="Markdown")
         return
-    
-    # Проверка: есть ли подписка ИЛИ остались бесплатные запросы
+
     if not await is_subscription_active(callback.from_user.id):
-        free_q = get_free_queries(callback.from_user.id)
+        free_q = await get_free_queries(callback.from_user.id)
         if free_q <= 0:
             await callback.message.answer(
                 f"🔒 **У вас нет подписки и закончились бесплатные запросы**\n\n"
@@ -208,18 +176,18 @@ async def search_callback(callback: types.CallbackQuery):
                 reply_markup=main_menu()
             )
             return
-        # Списываем бесплатный запрос
-        decrement_free_queries(callback.from_user.id)
-        await callback.message.answer(f"🎁 **Бесплатный запрос #{2 - get_free_queries(callback.from_user.id)} из 2**")
-    
+        await decrement_free_queries(callback.from_user.id)
+        await callback.message.answer(f"🎁 **Бесплатный запрос #{2 - await get_free_queries(callback.from_user.id)} из 2**")
+
     query = user_last_query.get(callback.from_user.id)
     if not query:
         await callback.message.answer("❌ Сначала отправь данные.")
         return
     msg = await callback.message.answer("⏳ Ищу в базе и открытых источниках...")
     db_results = await search_db(query)
-    await log_search(callback.from_user.id, query, len(db_results))
     osint_result = await osint_search(query)
+    await log_search(callback.from_user.id, query, len(db_results))
+
     response_text = f"🔍 **Результаты по запросу:** `{query}`\n\n"
     if db_results:
         response_text += f"📊 Найдено в БД: {len(db_results)} записей\n"
@@ -227,27 +195,15 @@ async def search_callback(callback: types.CallbackQuery):
             response_text += f"👤 {row.get('full_name', '—')} | 📞 {row.get('phone', '—')} | ✉️ {row.get('email', '—')}\n"
     else:
         response_text += "❌ В базе ничего не найдено.\n"
-    osint_data = osint_result.get('result', {})
-    if osint_data:
-        response_text += "\n📡 OSINT:\n"
-        tg = osint_data.get('telegram_phone', {}) or osint_data.get('telegram_username', {})
-        if tg.get('exists'):
-            response_text += f"   • Telegram: ✅ @{tg.get('username', '—')}\n"
-        tc = osint_data.get('truecaller', {})
-        if tc.get('name') and tc['name'] != '—':
-            response_text += f"   • Truecaller: {tc['name']} ({tc.get('country', '—')})\n"
-        hibp = osint_data.get('hibp', {})
-        if hibp.get('count', 0) > 0:
-            response_text += f"   • Утечек: {hibp['count']}\n"
-        sherlock = osint_data.get('sherlock', [])
-        if sherlock and sherlock != ['Не найдено']:
-            response_text += f"   • Sherlock: {', '.join(sherlock[:5])}\n"
+
+    if osint_result.get('result'):
+        response_text += f"\n📡 OSINT:\n{osint_result['result']}"
+
     html_content = generate_html_report(query, db_results, osint_result)
     await callback.message.answer(response_text, parse_mode="Markdown")
     await callback.message.answer_document(BufferedInputFile(html_content.encode(), filename=f"report_{query[:20]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"), caption="📄 Полный отчёт в HTML")
     await msg.delete()
 
-# ===== СТАТИСТИКА =====
 @dp.callback_query(lambda c: c.data == "stats")
 async def stats_callback(callback: types.CallbackQuery):
     await callback.answer("⏳ Загрузка статистики...")
@@ -267,13 +223,12 @@ async def stats_callback(callback: types.CallbackQuery):
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {e}")
 
-# ===== МОЯ ПОДПИСКА =====
 @dp.callback_query(lambda c: c.data == "my_subscription")
 async def my_subscription(callback: types.CallbackQuery):
     await callback.answer("⏳ Проверяю подписку...")
     try:
         info = await get_subscription_info(callback.from_user.id)
-        free_q = get_free_queries(callback.from_user.id)
+        free_q = await get_free_queries(callback.from_user.id)
         if info['active']:
             await callback.message.answer(
                 f"👤 **Ваша подписка активна**\n\n"
@@ -291,7 +246,6 @@ async def my_subscription(callback: types.CallbackQuery):
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {e}")
 
-# ===== ПОКУПКА ПОДПИСКИ =====
 @dp.callback_query(lambda c: c.data == "buy_subscription")
 async def buy_subscription(callback: types.CallbackQuery):
     await callback.answer()
@@ -320,53 +274,14 @@ async def successful_payment(message: types.Message):
     await activate_subscription(message.from_user.id, days=30)
     await message.answer("✅ **Подписка активирована!**", parse_mode="Markdown", reply_markup=main_menu())
 
-# ===== ПРОМОКОД =====
 @dp.callback_query(lambda c: c.data == "promo")
 async def promo_prompt(callback: types.CallbackQuery):
     await callback.answer()
     await callback.message.answer("🎟️ **Введите промокод** (8 символов)", parse_mode="Markdown")
 
-# ===== БЕСПЛАТНЫЕ ЗАПРОСЫ =====
-def get_free_queries(user_id: int) -> int:
-    import sqlite3
-    from config import DB_PATH
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.execute('SELECT free_queries FROM users WHERE user_id = ?', (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        return row[0]
-    return 2
-
-def decrement_free_queries(user_id: int):
-    import sqlite3
-    from config import DB_PATH
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute('''
-        INSERT INTO users (user_id, free_queries) VALUES (?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET free_queries = free_queries - 1
-    ''', (user_id, 2))
-    conn.commit()
-    conn.close()
-
-def init_free_queries_table():
-    import sqlite3
-    from config import DB_PATH
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            free_queries INTEGER DEFAULT 2
-        )
-    ''')
-    conn.commit()
-    conn.close()
-
-# ===== ЗАПУСК =====
 async def main():
     await init_db()
-    init_free_queries_table()
-    print("✅ Бот PROBIV+OSINT v7.0 (TigerData) запущен!")
+    print("✅ Бот PROBIV+OSINT v7.0 (OpenOSINT) запущен!")
     print(f"💰 Цена подписки: {PRICE_STARS} Stars за 30 дней")
     print("🎁 У каждого пользователя 2 бесплатных запроса")
     await dp.start_polling(bot)
