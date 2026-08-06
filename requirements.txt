@@ -7,3 +7,4 @@ openosint
 holehe
 sherlock-project
 sublist3r
+openai
