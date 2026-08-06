@@ -41,7 +41,6 @@ def main_menu():
     )
 
 def generate_html_report(query: str, db_results: list, osint_result: dict) -> str:
-    # Красивое оформление HTML
     html = f"""<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -49,27 +48,32 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Отчёт по запросу: {query}</title>
     <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
         body {{
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: #0a0a0a;
             color: #e0e0e0;
             padding: 30px;
-            margin: 0;
         }}
         .container {{
-            max-width: 900px;
+            max-width: 1000px;
             margin: 0 auto;
             background: #1a1a1a;
             padding: 30px;
             border-radius: 16px;
             border: 1px solid #333;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.8);
         }}
         h1 {{
             color: #00ff88;
             border-bottom: 3px solid #00ff88;
             padding-bottom: 15px;
             font-size: 28px;
+            margin-bottom: 20px;
         }}
         .query-box {{
             background: #2a2a2a;
@@ -83,7 +87,7 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
         .timestamp {{
             color: #888;
             font-size: 14px;
-            margin-bottom: 20px;
+            margin-bottom: 25px;
         }}
         .section {{
             margin: 25px 0;
@@ -96,6 +100,7 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
             margin-top: 0;
             color: #00ff88;
             font-size: 20px;
+            margin-bottom: 15px;
         }}
         table {{
             width: 100%;
@@ -119,6 +124,21 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
             color: #888;
             font-style: italic;
         }}
+        .vk-link {{
+            display: inline-block;
+            margin-top: 10px;
+            padding: 8px 16px;
+            background: #2a6b8f;
+            color: #fff;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: bold;
+            transition: 0.3s;
+        }}
+        .vk-link:hover {{
+            background: #1e4f6b;
+            text-decoration: underline;
+        }}
         .footer {{
             margin-top: 40px;
             padding-top: 20px;
@@ -129,23 +149,6 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
         }}
         .footer span {{
             color: #00ff88;
-        }}
-        .osint-item {{
-            margin: 6px 0;
-            padding: 4px 0;
-        }}
-        .osint-label {{
-            font-weight: bold;
-            color: #aaa;
-        }}
-        .badge {{
-            display: inline-block;
-            background: #00ff88;
-            color: #000;
-            padding: 2px 10px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: bold;
         }}
     </style>
 </head>
@@ -158,11 +161,19 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
     <div class="section">
         <h2>📊 БАЗА ДАННЫХ</h2>
         <table>
-            <tr><th>#</th><th>ФИО</th><th>Телефон</th><th>Email</th><th>Адрес</th></tr>
+            <tr><th>#</th><th>ФИО</th><th>Телефон</th><th>Email</th><th>Адрес</th><th>VK</th></tr>
 """
 
     if db_results:
-        for i, row in enumerate(db_results[:10], 1):
+        for i, row in enumerate(db_results[:20], 1):
+            vk_link = ""
+            if row.get('social_vk'):
+                vk_link = f'<a href="https://vk.com/{row["social_vk"]}" target="_blank" style="color:#00ff88;">{row["social_vk"]}</a>'
+            elif row.get('domain'):
+                vk_link = f'<a href="https://vk.com/{row["domain"]}" target="_blank" style="color:#00ff88;">{row["domain"]}</a>'
+            else:
+                vk_link = "—"
+
             html += f"""
             <tr>
                 <td>{i}</td>
@@ -170,10 +181,11 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
                 <td>{row.get('phone', '—')}</td>
                 <td>{row.get('email', '—')}</td>
                 <td>{row.get('address', '—')}</td>
+                <td>{vk_link}</td>
             </tr>
             """
     else:
-        html += '<tr><td colspan="5" class="empty">❌ Ничего не найдено</td></tr>'
+        html += '<tr><td colspan="6" class="empty">❌ Ничего не найдено</td></tr>'
 
     html += """
         </table>
@@ -195,7 +207,14 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
     else:
         html += '<div class="section"><h2>📡 OSINT</h2><p class="empty">❌ Данные не найдены</p></div>'
 
-    html += f"""
+    if db_results:
+        for row in db_results[:1]:
+            if row.get('social_vk'):
+                html += f'<div style="text-align:center;margin:20px 0;"><a href="https://vk.com/{row["social_vk"]}" target="_blank" class="vk-link">🔗 Открыть профиль VK</a></div>'
+            elif row.get('domain'):
+                html += f'<div style="text-align:center;margin:20px 0;"><a href="https://vk.com/{row["domain"]}" target="_blank" class="vk-link">🔗 Открыть профиль VK</a></div>'
+
+    html += """
     <div class="footer">
         📌 Отчёт сгенерирован <span>PROBIV+OSINT v7.0 (TORIK)</span>
     </div>
@@ -207,7 +226,6 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
 
 async def osint_search(query: str) -> dict:
     query = query.strip()
-    qtype = 'unknown'
     if re.match(r'^\+?\d{10,15}$', query) or re.match(r'^8\d{10}$', query):
         qtype = 'phone'
     elif re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', query):
@@ -218,6 +236,8 @@ async def osint_search(query: str) -> dict:
         qtype = 'username'
     elif re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', query):
         qtype = 'ip'
+    else:
+        qtype = 'unknown'
 
     cache_key = get_cache_key(query, qtype)
     cached = await get_cached_result(cache_key)
@@ -227,7 +247,6 @@ async def osint_search(query: str) -> dict:
     result = {'type': qtype, 'query': query, 'result': {}}
     try:
         async with MegaOSINT() as osint:
-            extra = {}
             if qtype == 'phone':
                 extra = await osint.full_search(phone=query)
             elif qtype == 'email':
@@ -239,14 +258,14 @@ async def osint_search(query: str) -> dict:
                 extra = await osint.full_search(username=username)
             elif qtype == 'ip':
                 extra = await osint.full_search(ip=query)
+            else:
+                extra = {}
         result['result'] = extra if isinstance(extra, dict) else {}
     except Exception as e:
         result['result'] = {'error': str(e)}
 
     await save_to_cache(cache_key, qtype, query, result)
     return result
-
-# ===== ОБРАБОТЧИКИ (все остальные — без изменений) =====
 
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
