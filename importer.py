@@ -10,7 +10,6 @@ from config import DATABASE_URL
 
 INPUT_FOLDER = "databases"
 
-# ===== НОРМАЛИЗАЦИЯ ТЕЛЕФОНА =====
 def normalize_phone(phone):
     if not phone:
         return None
@@ -24,7 +23,6 @@ def normalize_phone(phone):
     else:
         return None
 
-# ===== УНИВЕРСАЛЬНЫЙ ПОИСК КОЛОНОК =====
 def find_columns(headers):
     cols = {
         'first_name': None,
@@ -49,7 +47,7 @@ def find_columns(headers):
             if cols['last_name'] is None:
                 cols['last_name'] = i
         if any(k in col_lower for k in ['фио', 'full_name', 'fio']):
-            cols['first_name'] = i  # используем как полное имя
+            cols['first_name'] = i
         if any(k in col_lower for k in ['телефон', 'phone', 'mobile', 'мобильный', 'номер']):
             if cols['phone'] is None:
                 cols['phone'] = i
@@ -65,7 +63,7 @@ def find_columns(headers):
         if any(k in col_lower for k in ['дата рождения', 'birth']):
             if cols['birth_date'] is None:
                 cols['birth_date'] = i
-        if any(k in col_lower for k in ['vk', 'vkontakte']):
+        if any(k in col_lower for k in ['ник', 'nick', 'domain', 'vk']):
             if cols['social_vk'] is None:
                 cols['social_vk'] = i
         if any(k in col_lower for k in ['tg', 'telegram']):
@@ -75,16 +73,8 @@ def find_columns(headers):
             if cols['social_ok'] is None:
                 cols['social_ok'] = i
     
-    # Если не нашли отдельные колонки — ищем ФИО
-    if cols['first_name'] is None and cols['last_name'] is None:
-        for i, col in enumerate(headers):
-            if any(k in col.lower() for k in ['фио', 'full_name', 'fio']):
-                cols['first_name'] = i
-                break
-    
     return cols
 
-# ===== ИМПОРТ CSV =====
 async def import_csv(csv_path: str, conn):
     filename = os.path.basename(csv_path)
     print(f"📥 Импортирую: {filename}")
@@ -158,7 +148,6 @@ async def import_csv(csv_path: str, conn):
         print(f"❌ Ошибка импорта {filename}: {e}")
         return 0
 
-# ===== ОСНОВНАЯ ФУНКЦИЯ =====
 async def main():
     print("🔥 УНИВЕРСАЛЬНЫЙ ИМПОРТ В TIGERDATA")
     print("═" * 60)
