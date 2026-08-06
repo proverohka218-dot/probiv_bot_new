@@ -23,7 +23,7 @@ from database import (
     decrement_free_queries,
 )
 from rate_limiter import rate_limiter
-from mega_osint import MegaOSINT  # <--- ВЕРНУЛИ MEGAOSINT
+from mega_osint import MegaOSINT
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -92,25 +92,28 @@ async def osint_search(query: str) -> dict:
 
     cache_key = get_cache_key(query, qtype)
     cached = await get_cached_result(cache_key)
-    if cached:
+    if cached and isinstance(cached, dict) and 'result' in cached:
         return cached
 
     result = {'type': qtype, 'query': query, 'result': {}}
-    async with MegaOSINT() as osint:
-        if qtype == 'phone':
-            extra = await osint.full_search(phone=query)
-        elif qtype == 'email':
-            extra = await osint.full_search(email=query)
-        elif qtype == 'fio':
-            extra = await osint.full_search(fio=query)
-        elif qtype == 'username':
-            username = query[1:] if query.startswith('@') else query
-            extra = await osint.full_search(username=username)
-        elif qtype == 'ip':
-            extra = await osint.full_search(ip=query)
-        else:
-            extra = {}
-        result['result'] = extra
+    try:
+        async with MegaOSINT() as osint:
+            if qtype == 'phone':
+                extra = await osint.full_search(phone=query)
+            elif qtype == 'email':
+                extra = await osint.full_search(email=query)
+            elif qtype == 'fio':
+                extra = await osint.full_search(fio=query)
+            elif qtype == 'username':
+                username = query[1:] if query.startswith('@') else query
+                extra = await osint.full_search(username=username)
+            elif qtype == 'ip':
+                extra = await osint.full_search(ip=query)
+            else:
+                extra = {}
+        result['result'] = extra if isinstance(extra, dict) else {}
+    except Exception as e:
+        result['result'] = {'error': str(e)}
 
     await save_to_cache(cache_key, qtype, query, result)
     return result
@@ -211,19 +214,15 @@ async def search_callback(callback: types.CallbackQuery):
     else:
         response_text += "❌ В базе ничего не найдено.\n"
 
-    if osint_result and osint_result.get('result'):
-        osint_data = osint_result.get('result', {})
-        if osint_data:
-            response_text += "\n📡 OSINT:\n"
-            tg = osint_data.get('telegram', {})
-            if tg.get('exists'):
-                response_text += f"   • Telegram: ✅ @{tg.get('username', '—')}\n"
-            tc = osint_data.get('truecaller', {})
-            if tc.get('name') and tc['name'] != '—':
-                response_text += f"   • Truecaller: {tc['name']} ({tc.get('country', '—')})\n"
-            sherlock = osint_data.get('sherlock', [])
-            if sherlock and sherlock != ['Не найдено']:
-                response_text += f"   • Sherlock: {', '.join(sherlock[:5])}\n"
+    osint_data = osint_result.get('result', {}) if isinstance(osint_result, dict) else {}
+    if osint_data:
+        response_text += "\n📡 OSINT:\n"
+        if 'telegram' in osint_data and osint_data['telegram'].get('exists'):
+            response_text += f"   • Telegram: ✅ @{osint_data['telegram'].get('username', '—')}\n"
+        if 'truecaller' in osint_data and osint_data['truecaller'].get('name', '—') != '—':
+            response_text += f"   • Truecaller: {osint_data['truecaller']['name']} ({osint_data['truecaller'].get('country', '—')})\n"
+        if 'sherlock' in osint_data and osint_data['sherlock'] and osint_data['sherlock'] != ['Не найдено']:
+            response_text += f"   • Sherlock: {', '.join(osint_data['sherlock'][:5])}\n"
 
     html_content = generate_html_report(query, db_results, osint_result)
     await callback.message.answer(response_text, parse_mode="Markdown")
