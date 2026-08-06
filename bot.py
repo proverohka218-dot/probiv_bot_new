@@ -158,6 +158,7 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
     if db_results:
         for i, row in enumerate(db_results[:20], 1):
             vk_link = "—"
+            # Приоритет: сначала social_vk (ID или ник), потом domain
             if row.get('social_vk'):
                 vk_id = row['social_vk']
                 if str(vk_id).isdigit():
