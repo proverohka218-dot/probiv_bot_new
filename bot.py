@@ -23,7 +23,7 @@ from database import (
     decrement_free_queries,
 )
 from rate_limiter import rate_limiter
-from osint_agent import run_osint  # <--- OpenOSINT
+from osint_agent import run_osint
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -93,7 +93,7 @@ async def osint_search(query: str) -> str:
     cache_key = get_cache_key(query, qtype)
     cached = await get_cached_result(cache_key)
     if cached:
-        return cached.get('result', '')
+        return cached if isinstance(cached, str) else cached.get('result', '')
 
     raw_result = await run_osint(query)
     result = {'type': qtype, 'query': query, 'result': raw_result}
