@@ -10,6 +10,7 @@ from config import DATABASE_URL
 
 INPUT_FOLDER = "databases"
 
+# ===== НОРМАЛИЗАЦИЯ ТЕЛЕФОНА =====
 def normalize_phone(phone):
     if not phone:
         return None
@@ -23,6 +24,7 @@ def normalize_phone(phone):
     else:
         return None
 
+# ===== УНИВЕРСАЛЬНЫЙ ПОИСК КОЛОНОК =====
 def find_columns(headers):
     cols = {
         'first_name': None,
@@ -63,7 +65,13 @@ def find_columns(headers):
         if any(k in col_lower for k in ['дата рождения', 'birth']):
             if cols['birth_date'] is None:
                 cols['birth_date'] = i
+        if any(k in col_lower for k in ['id', 'user_id', 'vk_id']):
+            if cols['social_vk'] is None:
+                cols['social_vk'] = i
         if any(k in col_lower for k in ['ник', 'nick', 'domain', 'vk']):
+            if cols['social_vk'] is None:
+                cols['social_vk'] = i
+        if any(k in col_lower for k in ['vk', 'vkontakte']):
             if cols['social_vk'] is None:
                 cols['social_vk'] = i
         if any(k in col_lower for k in ['tg', 'telegram']):
@@ -73,8 +81,16 @@ def find_columns(headers):
             if cols['social_ok'] is None:
                 cols['social_ok'] = i
     
+    # Если не нашли отдельные колонки — ищем ФИО
+    if cols['first_name'] is None and cols['last_name'] is None:
+        for i, col in enumerate(headers):
+            if any(k in col.lower() for k in ['фио', 'full_name', 'fio']):
+                cols['first_name'] = i
+                break
+    
     return cols
 
+# ===== ИМПОРТ CSV =====
 async def import_csv(csv_path: str, conn):
     filename = os.path.basename(csv_path)
     print(f"📥 Импортирую: {filename}")
@@ -122,8 +138,13 @@ async def import_csv(csv_path: str, conn):
                 # Дата рождения
                 birth_date = parts[cols_map['birth_date']].strip() if cols_map['birth_date'] is not None else ''
                 
-                # Соцсети
-                social_vk = parts[cols_map['social_vk']].strip() if cols_map['social_vk'] is not None else ''
+                # Соцсети (приоритет: ID > ник)
+                social_vk = ''
+                if cols_map['social_vk'] is not None:
+                    social_vk = parts[cols_map['social_vk']].strip()
+                    # Если это число — оставляем как есть (ID)
+                    # Если строка — тоже оставляем (может быть ник)
+                
                 social_tg = parts[cols_map['social_tg']].strip() if cols_map['social_tg'] is not None else ''
                 social_ok = parts[cols_map['social_ok']].strip() if cols_map['social_ok'] is not None else ''
                 
@@ -148,6 +169,7 @@ async def import_csv(csv_path: str, conn):
         print(f"❌ Ошибка импорта {filename}: {e}")
         return 0
 
+# ===== ОСНОВНАЯ ФУНКЦИЯ =====
 async def main():
     print("🔥 УНИВЕРСАЛЬНЫЙ ИМПОРТ В TIGERDATA")
     print("═" * 60)
