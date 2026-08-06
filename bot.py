@@ -23,7 +23,7 @@ from database import (
     decrement_free_queries,
 )
 from rate_limiter import rate_limiter
-from osint_agent import run_osint
+from mega_osint import MegaOSINT  # <--- ВЕРНУЛИ MEGAOSINT
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -40,7 +40,7 @@ def main_menu():
         ]
     )
 
-def generate_html_report(query: str, db_results: list, osint_result: str) -> str:
+def generate_html_report(query: str, db_results: list, osint_result: dict) -> str:
     html = f"""<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><title>Отчёт по запросу: {query}</title>
@@ -68,14 +68,14 @@ th{{background:#2a2a2a;color:#00ff88;}}
         html += '<div class="section"><p>❌ В базе ничего не найдено</p></div>'
 
     if osint_result:
-        html += '<div class="section"><h2>📡 OSINT (OpenOSINT)</h2>'
+        html += '<div class="section"><h2>📡 OSINT (MegaOSINT)</h2>'
         html += f'<pre>{osint_result}</pre>'
         html += '</div>'
 
     html += '<div class="footer">📌 Отчёт сгенерирован PROBIV+OSINT v7.0 (ROCKET)</div></div></body></html>'
     return html
 
-async def osint_search(query: str) -> str:
+async def osint_search(query: str) -> dict:
     query = query.strip()
     if re.match(r'^\+?\d{10,15}$', query) or re.match(r'^8\d{10}$', query):
         qtype = 'phone'
@@ -93,17 +93,32 @@ async def osint_search(query: str) -> str:
     cache_key = get_cache_key(query, qtype)
     cached = await get_cached_result(cache_key)
     if cached:
-        return cached if isinstance(cached, str) else cached.get('result', '')
+        return cached
 
-    raw_result = await run_osint(query)
-    result = {'type': qtype, 'query': query, 'result': raw_result}
+    result = {'type': qtype, 'query': query, 'result': {}}
+    async with MegaOSINT() as osint:
+        if qtype == 'phone':
+            extra = await osint.full_search(phone=query)
+        elif qtype == 'email':
+            extra = await osint.full_search(email=query)
+        elif qtype == 'fio':
+            extra = await osint.full_search(fio=query)
+        elif qtype == 'username':
+            username = query[1:] if query.startswith('@') else query
+            extra = await osint.full_search(username=username)
+        elif qtype == 'ip':
+            extra = await osint.full_search(ip=query)
+        else:
+            extra = {}
+        result['result'] = extra
+
     await save_to_cache(cache_key, qtype, query, result)
-    return raw_result
+    return result
 
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
     await message.answer(
-        f"🔍 **PROBIV+OSINT v7.0 (OpenOSINT)**\n\n"
+        f"🔍 **PROBIV+OSINT v7.0 (MegaOSINT)**\n\n"
         "Я ищу информацию по:\n"
         "• 📞 Номеру телефона\n"
         "• ✉️ Email\n"
@@ -196,8 +211,19 @@ async def search_callback(callback: types.CallbackQuery):
     else:
         response_text += "❌ В базе ничего не найдено.\n"
 
-    if osint_result:
-        response_text += f"\n📡 OSINT:\n{osint_result}"
+    if osint_result and osint_result.get('result'):
+        osint_data = osint_result.get('result', {})
+        if osint_data:
+            response_text += "\n📡 OSINT:\n"
+            tg = osint_data.get('telegram', {})
+            if tg.get('exists'):
+                response_text += f"   • Telegram: ✅ @{tg.get('username', '—')}\n"
+            tc = osint_data.get('truecaller', {})
+            if tc.get('name') and tc['name'] != '—':
+                response_text += f"   • Truecaller: {tc['name']} ({tc.get('country', '—')})\n"
+            sherlock = osint_data.get('sherlock', [])
+            if sherlock and sherlock != ['Не найдено']:
+                response_text += f"   • Sherlock: {', '.join(sherlock[:5])}\n"
 
     html_content = generate_html_report(query, db_results, osint_result)
     await callback.message.answer(response_text, parse_mode="Markdown")
@@ -281,7 +307,7 @@ async def promo_prompt(callback: types.CallbackQuery):
 
 async def main():
     await init_db()
-    print("✅ Бот PROBIV+OSINT v7.0 (OpenOSINT) запущен!")
+    print("✅ Бот PROBIV+OSINT v7.0 (MegaOSINT) запущен!")
     print(f"💰 Цена подписки: {PRICE_STARS} Stars за 30 дней")
     print("🎁 У каждого пользователя 2 бесплатных запроса")
     await dp.start_polling(bot)
