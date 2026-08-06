@@ -72,7 +72,7 @@ th{{background:#2a2a2a;color:#00ff88;}}
         html += f'<pre>{osint_result}</pre>'
         html += '</div>'
 
-    html += '<div class="footer">📌 Отчёт сгенерирован PROBIV+OSINT v7.0 (ROCKET)</div></div></body></html>'
+    html += '<div class="footer">📌 Отчёт сгенерирован PROBIV+OSINT v7.0 (TORIK)</div></div></body></html>'
     return html
 
 async def osint_search(query: str) -> dict:
@@ -121,7 +121,7 @@ async def osint_search(query: str) -> dict:
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
     await message.answer(
-        f"🔍 **PROBIV+OSINT v7.0 (MegaOSINT)**\n\n"
+        f"🔍 **PROBIV+OSINT v7.0 (TORIK)**\n\n"
         "Я ищу информацию по:\n"
         "• 📞 Номеру телефона\n"
         "• ✉️ Email\n"
@@ -306,7 +306,7 @@ async def promo_prompt(callback: types.CallbackQuery):
 
 async def main():
     await init_db()
-    print("✅ Бот PROBIV+OSINT v7.0 (MegaOSINT) запущен!")
+    print("✅ Бот PROBIV+OSINT v7.0 (TORIK) запущен!")
     print(f"💰 Цена подписки: {PRICE_STARS} Stars за 30 дней")
     print("🎁 У каждого пользователя 2 бесплатных запроса")
     await dp.start_polling(bot)
