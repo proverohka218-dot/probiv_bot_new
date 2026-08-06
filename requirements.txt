@@ -3,3 +3,7 @@ aiohttp==3.10.11
 python-dotenv==1.0.1
 fake-useragent==1.5.1
 asyncpg==0.30.0
+openosint
+holehe
+sherlock-project
+sublist3r
