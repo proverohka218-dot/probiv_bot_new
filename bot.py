@@ -41,42 +41,173 @@ def main_menu():
     )
 
 def generate_html_report(query: str, db_results: list, osint_result: dict) -> str:
+    # Красивое оформление HTML
     html = f"""<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><title>Отчёт по запросу: {query}</title>
-<style>body{{font-family:Arial,sans-serif;background:#0a0a0a;color:#e0e0e0;padding:20px;}}
-.container{{max-width:800px;margin:auto;background:#1a1a1a;padding:30px;border-radius:12px;border:1px solid #333;}}
-h1{{color:#00ff88;border-bottom:2px solid #00ff88;padding-bottom:10px;}}
-.section{{margin:20px 0;padding:15px;background:#222;border-radius:8px;border-left:4px solid #00ff88;}}
-table{{width:100%;border-collapse:collapse;}}
-th,td{{padding:10px;text-align:left;border-bottom:1px solid #333;}}
-th{{background:#2a2a2a;color:#00ff88;}}
-.footer{{margin-top:30px;font-size:12px;color:#666;text-align:center;}}
-</style></head>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Отчёт по запросу: {query}</title>
+    <style>
+        body {{
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            padding: 30px;
+            margin: 0;
+        }}
+        .container {{
+            max-width: 900px;
+            margin: 0 auto;
+            background: #1a1a1a;
+            padding: 30px;
+            border-radius: 16px;
+            border: 1px solid #333;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+        }}
+        h1 {{
+            color: #00ff88;
+            border-bottom: 3px solid #00ff88;
+            padding-bottom: 15px;
+            font-size: 28px;
+        }}
+        .query-box {{
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 10px;
+            font-family: monospace;
+            font-size: 18px;
+            margin: 20px 0;
+            border-left: 4px solid #00ff88;
+        }}
+        .timestamp {{
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }}
+        .section {{
+            margin: 25px 0;
+            padding: 20px;
+            background: #222;
+            border-radius: 12px;
+            border-left: 5px solid #00ff88;
+        }}
+        .section h2 {{
+            margin-top: 0;
+            color: #00ff88;
+            font-size: 20px;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }}
+        th, td {{
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #333;
+        }}
+        th {{
+            background: #2a2a2a;
+            color: #00ff88;
+            font-weight: bold;
+        }}
+        td {{
+            color: #ccc;
+        }}
+        .empty {{
+            color: #888;
+            font-style: italic;
+        }}
+        .footer {{
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #333;
+            font-size: 12px;
+            color: #555;
+            text-align: center;
+        }}
+        .footer span {{
+            color: #00ff88;
+        }}
+        .osint-item {{
+            margin: 6px 0;
+            padding: 4px 0;
+        }}
+        .osint-label {{
+            font-weight: bold;
+            color: #aaa;
+        }}
+        .badge {{
+            display: inline-block;
+            background: #00ff88;
+            color: #000;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }}
+    </style>
+</head>
 <body>
 <div class="container">
-<h1>🔍 ОТЧЁТ ПО ЗАПРОСУ</h1>
-<div style="font-size:18px;">📌 {query}</div>
-<div style="color:#888;">🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+    <h1>🔍 ОТЧЁТ ПО ЗАПРОСУ</h1>
+    <div class="query-box">📌 {query}</div>
+    <div class="timestamp">🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+
+    <div class="section">
+        <h2>📊 БАЗА ДАННЫХ</h2>
+        <table>
+            <tr><th>#</th><th>ФИО</th><th>Телефон</th><th>Email</th><th>Адрес</th></tr>
 """
+
     if db_results:
-        html += f'<div class="section"><h2>📊 БАЗА ДАННЫХ (найдено: {len(db_results)})</h2><table><tr><th>#</th><th>ФИО</th><th>Телефон</th><th>Email</th><th>Адрес</th></tr>'
         for i, row in enumerate(db_results[:10], 1):
-            html += f'<tr><td>{i}</td><td>{row.get("full_name", "—")}</td><td>{row.get("phone", "—")}</td><td>{row.get("email", "—")}</td><td>{row.get("address", "—")}</td></tr>'
-        html += '</table></div>'
+            html += f"""
+            <tr>
+                <td>{i}</td>
+                <td>{row.get('full_name', '—')}</td>
+                <td>{row.get('phone', '—')}</td>
+                <td>{row.get('email', '—')}</td>
+                <td>{row.get('address', '—')}</td>
+            </tr>
+            """
     else:
-        html += '<div class="section"><p>❌ В базе ничего не найдено</p></div>'
+        html += '<tr><td colspan="5" class="empty">❌ Ничего не найдено</td></tr>'
 
-    if osint_result:
+    html += """
+        </table>
+    </div>
+    """
+
+    osint_data = osint_result.get('result', {}) if isinstance(osint_result, dict) else {}
+    if osint_data:
         html += '<div class="section"><h2>📡 OSINT (MegaOSINT)</h2>'
-        html += f'<pre>{osint_result}</pre>'
+        if 'telegram' in osint_data and osint_data['telegram'].get('exists'):
+            html += f'<div class="osint-item">📱 Telegram: ✅ <b>@{osint_data["telegram"].get("username", "—")}</b></div>'
+        if 'truecaller' in osint_data and osint_data['truecaller'].get('name', '—') != '—':
+            html += f'<div class="osint-item">📞 Truecaller: <b>{osint_data["truecaller"]["name"]}</b> ({osint_data["truecaller"].get("country", "—")})</div>'
+        if 'sherlock' in osint_data and osint_data['sherlock'] and osint_data['sherlock'] != ['Не найдено']:
+            html += '<div class="osint-item">🔎 Sherlock: <b>' + ', '.join(osint_data['sherlock'][:5]) + '</b></div>'
+        if 'numverify' in osint_data and osint_data['numverify'].get('valid'):
+            html += f'<div class="osint-item">📞 Numverify: {osint_data["numverify"].get("country", "—")}, {osint_data["numverify"].get("location", "—")}</div>'
         html += '</div>'
+    else:
+        html += '<div class="section"><h2>📡 OSINT</h2><p class="empty">❌ Данные не найдены</p></div>'
 
-    html += '<div class="footer">📌 Отчёт сгенерирован PROBIV+OSINT v7.0 (TORIK)</div></div></body></html>'
+    html += f"""
+    <div class="footer">
+        📌 Отчёт сгенерирован <span>PROBIV+OSINT v7.0 (TORIK)</span>
+    </div>
+</div>
+</body>
+</html>
+"""
     return html
 
 async def osint_search(query: str) -> dict:
     query = query.strip()
+    qtype = 'unknown'
     if re.match(r'^\+?\d{10,15}$', query) or re.match(r'^8\d{10}$', query):
         qtype = 'phone'
     elif re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', query):
@@ -87,8 +218,6 @@ async def osint_search(query: str) -> dict:
         qtype = 'username'
     elif re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', query):
         qtype = 'ip'
-    else:
-        qtype = 'unknown'
 
     cache_key = get_cache_key(query, qtype)
     cached = await get_cached_result(cache_key)
@@ -98,6 +227,7 @@ async def osint_search(query: str) -> dict:
     result = {'type': qtype, 'query': query, 'result': {}}
     try:
         async with MegaOSINT() as osint:
+            extra = {}
             if qtype == 'phone':
                 extra = await osint.full_search(phone=query)
             elif qtype == 'email':
@@ -109,14 +239,14 @@ async def osint_search(query: str) -> dict:
                 extra = await osint.full_search(username=username)
             elif qtype == 'ip':
                 extra = await osint.full_search(ip=query)
-            else:
-                extra = {}
         result['result'] = extra if isinstance(extra, dict) else {}
     except Exception as e:
         result['result'] = {'error': str(e)}
 
     await save_to_cache(cache_key, qtype, query, result)
     return result
+
+# ===== ОБРАБОТЧИКИ (все остальные — без изменений) =====
 
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
