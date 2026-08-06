@@ -23,7 +23,7 @@ from database import (
     decrement_free_queries,
 )
 from rate_limiter import rate_limiter
-from osint_agent import run_osint  # <--- ЗАМЕНА
+from osint_agent import run_osint  # <--- OpenOSINT
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -40,7 +40,7 @@ def main_menu():
         ]
     )
 
-def generate_html_report(query: str, db_results: list, osint_result: dict) -> str:
+def generate_html_report(query: str, db_results: list, osint_result: str) -> str:
     html = f"""<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><title>Отчёт по запросу: {query}</title>
@@ -75,7 +75,7 @@ th{{background:#2a2a2a;color:#00ff88;}}
     html += '<div class="footer">📌 Отчёт сгенерирован PROBIV+OSINT v7.0 (ROCKET)</div></div></body></html>'
     return html
 
-async def osint_search(query: str) -> dict:
+async def osint_search(query: str) -> str:
     query = query.strip()
     if re.match(r'^\+?\d{10,15}$', query) or re.match(r'^8\d{10}$', query):
         qtype = 'phone'
@@ -93,12 +93,12 @@ async def osint_search(query: str) -> dict:
     cache_key = get_cache_key(query, qtype)
     cached = await get_cached_result(cache_key)
     if cached:
-        return cached
+        return cached.get('result', '')
 
     raw_result = await run_osint(query)
     result = {'type': qtype, 'query': query, 'result': raw_result}
     await save_to_cache(cache_key, qtype, query, result)
-    return result
+    return raw_result
 
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
@@ -196,8 +196,8 @@ async def search_callback(callback: types.CallbackQuery):
     else:
         response_text += "❌ В базе ничего не найдено.\n"
 
-    if osint_result.get('result'):
-        response_text += f"\n📡 OSINT:\n{osint_result['result']}"
+    if osint_result:
+        response_text += f"\n📡 OSINT:\n{osint_result}"
 
     html_content = generate_html_report(query, db_results, osint_result)
     await callback.message.answer(response_text, parse_mode="Markdown")
