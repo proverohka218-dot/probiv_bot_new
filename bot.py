@@ -477,6 +477,32 @@ async def promo_prompt(callback: types.CallbackQuery):
     await callback.answer()
     await callback.message.answer("🎟️ **Введите промокод** (8 символов)", parse_mode="Markdown")
 
+# ===== ОБРАБОТЧИК ЗАГРУЖЕННЫХ ФАЙЛОВ (ГАРАНТИРОВАННО РАБОТАЕТ) =====
+@dp.message(lambda message: message.document is not None)
+async def handle_uploaded_file(message: types.Message):
+    file_name = message.document.file_name
+    await message.answer(f"📥 Получен файл: {file_name}")
+
+    if not (file_name.endswith('.csv') or file_name.endswith('.rar') or file_name.endswith('.7z') or file_name.endswith('.zip')):
+        await message.answer("❌ Поддерживаются только CSV, RAR, 7Z, ZIP")
+        return
+
+    await message.answer("⏳ Скачиваю файл...")
+    file = await bot.get_file(message.document.file_id)
+    downloaded_file = await bot.download_file(file.file_path)
+
+    os.makedirs("databases", exist_ok=True)
+    file_path = f"databases/{file_name}"
+    with open(file_path, "wb") as f:
+        f.write(downloaded_file.read())
+
+    await message.answer(f"✅ Файл {file_name} сохранён в databases/")
+
+    if file_name.endswith('.csv'):
+        await message.answer("⏳ Импортирую данные...")
+        result = subprocess.run(["python3", "importer.py"], capture_output=True, text=True)
+        await message.answer(f"📊 Импорт завершён:\n{result.stdout[-1000:]}")
+
 async def main():
     await init_db()
     print("✅ Бот PROBIV+OSINT v7.0 (TORIK) запущен!")
