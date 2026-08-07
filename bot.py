@@ -1,5 +1,7 @@
 import asyncio
 import re
+import os
+import subprocess
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
@@ -158,7 +160,6 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
     if db_results:
         for i, row in enumerate(db_results[:20], 1):
             vk_link = "—"
-            # Приоритет: сначала social_vk (ID или ник), потом domain
             if row.get('social_vk'):
                 vk_id = row['social_vk']
                 if str(vk_id).isdigit():
@@ -323,6 +324,31 @@ async def handle_text(message: types.Message):
     user_last_query[message.from_user.id] = message.text.strip()
     await message.answer(f"✅ Сохранено: `{message.text}`\nНажми **«Пробить»**", parse_mode="Markdown", reply_markup=main_menu())
 
+# ===== ОБРАБОТЧИК ЗАГРУЖЕННЫХ ФАЙЛОВ =====
+@dp.message(lambda message: message.document)
+async def handle_uploaded_file(message: types.Message):
+    file_name = message.document.file_name
+    if not (file_name.endswith('.csv') or file_name.endswith('.rar') or file_name.endswith('.7z') or file_name.endswith('.zip')):
+        await message.answer("❌ Поддерживаются только CSV, RAR, 7Z, ZIP")
+        return
+
+    await message.answer(f"⏳ Скачиваю файл {file_name}...")
+    file = await bot.get_file(message.document.file_id)
+    downloaded_file = await bot.download_file(file.file_path)
+
+    os.makedirs("databases", exist_ok=True)
+    file_path = f"databases/{file_name}"
+    with open(file_path, "wb") as f:
+        f.write(downloaded_file.read())
+
+    await message.answer(f"✅ Файл {file_name} загружен в databases/")
+
+    if file_name.endswith('.csv'):
+        await message.answer("⏳ Импортирую данные...")
+        result = subprocess.run(["python3", "importer.py"], capture_output=True, text=True)
+        await message.answer(f"📊 Импорт завершён:\n{result.stdout[-1000:]}")
+
+# ===== ОБРАБОТЧИКИ КНОПОК =====
 @dp.callback_query(lambda c: c.data == "search")
 async def search_callback(callback: types.CallbackQuery):
     await callback.answer("⏳ Поиск...")
