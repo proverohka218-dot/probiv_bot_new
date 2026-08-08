@@ -12,8 +12,8 @@ import asyncpg
 from config import DATABASE_URL
 
 INPUT_FOLDER = "databases"
+ARCHIVE_PASSWORD = "твой_пароль"  # ← ЗАМЕНИ НА СВОЙ ПАРОЛЬ, ЕСЛИ НУЖНО
 
-# ===== НОРМАЛИЗАЦИЯ ТЕЛЕФОНА =====
 def normalize_phone(phone):
     if not phone:
         return None
@@ -27,26 +27,43 @@ def normalize_phone(phone):
     else:
         return None
 
-# ===== РАСПАКОВКА АРХИВОВ =====
-def extract_archive(file_path, output_dir):
+def extract_archive(file_path, output_dir, password=None):
     ext = os.path.splitext(file_path)[1].lower()
-    if ext in ['.rar', '.7z', '.zip']:
-        cmd = []
-        if ext == '.rar':
-            cmd = ['unrar', 'x', '-y', file_path, output_dir]
-        elif ext == '.7z':
-            cmd = ['7z', 'x', file_path, f'-o{output_dir}', '-y']
-        elif ext == '.zip':
-            cmd = ['unzip', '-o', file_path, '-d', output_dir]
-        try:
-            subprocess.run(cmd, check=True, capture_output=True)
-            print(f"✅ Распакован: {os.path.basename(file_path)}")
-            return True
-        except:
-            pass
-    return False
+    cmd = []
 
-# ===== ОСНОВНАЯ ФУНКЦИЯ =====
+    if ext == '.rar':
+        cmd = ['unrar', 'x', '-y']
+        if password:
+            cmd.extend(['-p' + password])
+        cmd.extend([file_path, output_dir])
+    elif ext == '.7z':
+        cmd = ['7z', 'x', file_path, f'-o{output_dir}', '-y']
+        if password:
+            cmd.append('-p' + password)
+    elif ext == '.zip':
+        cmd = ['unzip', '-o']
+        if password:
+            cmd.extend(['-P', password])
+        cmd.extend([file_path, '-d', output_dir])
+    else:
+        return False
+
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+        print(f"✅ Распакован: {os.path.basename(file_path)}")
+        return True
+    except Exception as e:
+        print(f"❌ Ошибка распаковки {os.path.basename(file_path)}: {e}")
+        return False
+
+def find_csv_files(folder):
+    csv_files = []
+    for root, _, files in os.walk(folder):
+        for f in files:
+            if f.endswith('.csv'):
+                csv_files.append(os.path.join(root, f))
+    return csv_files
+
 async def main():
     print("🔥 ИМПОРТ В TIGERDATA (С РАСПАКОВКОЙ)")
     print("═" * 60)
@@ -56,7 +73,6 @@ async def main():
         print(f"📁 Папка '{INPUT_FOLDER}' создана. Положите туда CSV или архивы.")
         return
 
-    # Собираем все файлы
     all_files = []
     for root, _, files in os.walk(INPUT_FOLDER):
         for f in files:
@@ -68,7 +84,6 @@ async def main():
 
     print(f"📂 Найдено файлов: {len(all_files)}")
 
-    # Временная папка для распакованных файлов
     temp_dir = tempfile.mkdtemp()
     csv_files = []
 
@@ -76,12 +91,8 @@ async def main():
         ext = os.path.splitext(file_path)[1].lower()
         if ext in ['.rar', '.7z', '.zip']:
             print(f"📦 Распаковка: {os.path.basename(file_path)}")
-            if extract_archive(file_path, temp_dir):
-                # Ищем CSV в распакованном
-                for root, _, files in os.walk(temp_dir):
-                    for f in files:
-                        if f.endswith('.csv'):
-                            csv_files.append(os.path.join(root, f))
+            if extract_archive(file_path, temp_dir, ARCHIVE_PASSWORD):
+                csv_files.extend(find_csv_files(temp_dir))
         elif ext == '.csv':
             csv_files.append(file_path)
 
@@ -91,8 +102,9 @@ async def main():
         return
 
     print(f"📄 Найдено CSV-файлов: {len(csv_files)}")
+    for f in csv_files:
+        print(f"   {f}")
 
-    # Подключаемся к БД
     try:
         pool = await asyncpg.create_pool(DATABASE_URL)
         print("✅ Подключение к TigerData установлено")
