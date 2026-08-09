@@ -4,13 +4,16 @@
 import os
 import csv
 import re
+import subprocess
+import shutil
+import tempfile
 import asyncio
 import asyncpg
 from config import DATABASE_URL
 
 INPUT_FOLDER = "databases"
+ARCHIVE_PASSWORD = None
 
-# ===== НОРМАЛИЗАЦИЯ ТЕЛЕФОНА =====
 def normalize_phone(phone):
     if not phone:
         return None
@@ -24,187 +27,219 @@ def normalize_phone(phone):
     else:
         return None
 
-# ===== УНИВЕРСАЛЬНЫЙ ПОИСК КОЛОНОК =====
-def find_columns(headers):
-    cols = {
-        'first_name': None,
-        'last_name': None,
-        'phone': None,
-        'email': None,
-        'address': None,
-        'passport': None,
-        'birth_date': None,
-        'social_vk': None,
-        'social_tg': None,
-        'social_ok': None
+def extract_archive(file_path, output_dir, password=None):
+    ext = os.path.splitext(file_path)[1].lower()
+    
+    # Проверяем наличие 7zz (или 7z) в системе
+    if os.system('which 7zz >/dev/null 2>&1') == 0:
+        cmd = ['7zz', 'x', file_path, f'-o{output_dir}', '-y']
+    elif os.system('which 7z >/dev/null 2>&1') == 0:
+        cmd = ['7z', 'x', file_path, f'-o{output_dir}', '-y']
+    else:
+        print("❌ 7zz/7z не найден. Установи p7zip.")
+        return False
+
+    if password:
+        cmd.append('-p' + password)
+
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+        print(f"✅ Распакован: {os.path.basename(file_path)}")
+        return True
+    except Exception as e:
+        print(f"❌ Ошибка распаковки {os.path.basename(file_path)}: {e}")
+        return False
+
+def find_csv_files(folder):
+    csv_files = []
+    for root, _, files in os.walk(folder):
+        for f in files:
+            if f.endswith('.csv'):
+                csv_files.append(os.path.join(root, f))
+    return csv_files
+
+def detect_column(header_row):
+    cols = {}
+    lower_headers = [str(h).lower().strip() for h in header_row]
+
+    keywords = {
+        'full_name': ['фио', 'ф.и.о.', 'fio', 'имя', 'фамилия', 'name', 'fullname', 'ученик', 'учащийся', 'студент', 'сотрудник', 'заказчик', 'клиент', 'контакт', 'лицо', 'человек', 'пользователь'],
+        'phone': ['телефон', 'phone', 'мобильный', 'мобильный телефон', 'номер', 'contact', 'tel', 'whatsapp', 'viber', 'telegram'],
+        'email': ['email', 'почта', 'e-mail', 'mail', 'эл.почта', 'электронная почта'],
+        'address': ['адрес', 'address', 'место', 'проживание', 'регистрация', 'локация', 'location'],
+        'school': ['школа', 'school', 'гимназия', 'лицей', 'учебное заведение', 'место учебы', 'education', 'учится'],
+        'class': ['класс', 'class', 'группа', 'курс', 'параллель', 'year', 'grade'],
+        'class_teacher': ['классный руководитель', 'классный', 'class teacher', 'учитель', 'преподаватель', 'куратор', 'наставник', 'классрук'],
+        'inn': ['инн', 'inn', 'иин', 'налоговый номер', 'идентификационный номер'],
+        'passport': ['паспорт', 'passport', 'серия', 'номер паспорта', 'удостоверение', 'документ'],
+        'birth_date': ['дата рождения', 'birth', 'день рождения', 'год рождения', 'рождения', 'age', 'возраст'],
+        'social_vk': ['vk', 'вк', 'vkontakte'],
+        'social_tg': ['tg', 'telegram', 'телеграм'],
+        'social_ok': ['ok', 'одноклассники', 'odnoklassniki'],
     }
-    
-    for i, col in enumerate(headers):
-        col_lower = col.lower().strip()
-        
-        if any(k in col_lower for k in ['имя', 'first_name', 'first', 'name']):
-            if cols['first_name'] is None:
-                cols['first_name'] = i
-        if any(k in col_lower for k in ['фамилия', 'last_name', 'last', 'surname']):
-            if cols['last_name'] is None:
-                cols['last_name'] = i
-        if any(k in col_lower for k in ['фио', 'full_name', 'fio']):
-            cols['first_name'] = i
-        if any(k in col_lower for k in ['телефон', 'phone', 'mobile', 'мобильный', 'номер']):
-            if cols['phone'] is None:
-                cols['phone'] = i
-        if any(k in col_lower for k in ['email', 'почта', 'mail']):
-            if cols['email'] is None:
-                cols['email'] = i
-        if any(k in col_lower for k in ['адрес', 'address']):
-            if cols['address'] is None:
-                cols['address'] = i
-        if any(k in col_lower for k in ['паспорт', 'passport']):
-            if cols['passport'] is None:
-                cols['passport'] = i
-        if any(k in col_lower for k in ['дата рождения', 'birth']):
-            if cols['birth_date'] is None:
-                cols['birth_date'] = i
-        if any(k in col_lower for k in ['id', 'user_id', 'vk_id']):
-            if cols['social_vk'] is None:
-                cols['social_vk'] = i
-        if any(k in col_lower for k in ['ник', 'nick', 'domain', 'vk']):
-            if cols['social_vk'] is None:
-                cols['social_vk'] = i
-        if any(k in col_lower for k in ['vk', 'vkontakte']):
-            if cols['social_vk'] is None:
-                cols['social_vk'] = i
-        if any(k in col_lower for k in ['tg', 'telegram']):
-            if cols['social_tg'] is None:
-                cols['social_tg'] = i
-        if any(k in col_lower for k in ['ok', 'odnoklassniki']):
-            if cols['social_ok'] is None:
-                cols['social_ok'] = i
-    
-    # Если не нашли отдельные колонки — ищем ФИО
-    if cols['first_name'] is None and cols['last_name'] is None:
-        for i, col in enumerate(headers):
-            if any(k in col.lower() for k in ['фио', 'full_name', 'fio']):
-                cols['first_name'] = i
+
+    for field, words in keywords.items():
+        found = False
+        for i, header in enumerate(lower_headers):
+            if any(word in header for word in words):
+                cols[field] = i
+                found = True
                 break
-    
+        if not found:
+            cols[field] = None
+
+    if cols['full_name'] is None and cols['phone'] is None:
+        if len(header_row) >= 2:
+            cols['full_name'] = 0
+            cols['phone'] = 1
+        elif len(header_row) == 1:
+            cols['full_name'] = 0
+
     return cols
 
-# ===== ИМПОРТ CSV =====
-async def import_csv(csv_path: str, conn):
-    filename = os.path.basename(csv_path)
-    print(f"📥 Импортирую: {filename}")
-    
+async def import_csv_file(csv_path: str, conn):
+    print(f"📥 Импортирую: {os.path.basename(csv_path)}")
     try:
         with open(csv_path, 'r', encoding='utf-8', errors='ignore') as f:
             first_line = f.readline()
             delim = '|' if '|' in first_line else ';' if ';' in first_line else ','
-        
+
         with open(csv_path, 'r', encoding='utf-8', errors='ignore') as f:
-            reader = csv.DictReader(f, delimiter=delim)
-            if not reader.fieldnames:
-                print(f"⚠️ Нет заголовков в {filename}")
+            reader = csv.reader(f, delimiter=delim)
+            header_row = next(reader, None)
+            if not header_row:
+                print(f"⚠️ Файл пустой: {os.path.basename(csv_path)}")
                 return 0
-            
-            cols_map = find_columns(reader.fieldnames)
+
+            cols = detect_column(header_row)
+            print(f"   🔍 Найдены колонки: {cols}")
+
             count = 0
-            
             for row in reader:
-                parts = [row.get(col, '') for col in reader.fieldnames]
-                
-                # Имя и фамилия
-                if cols_map['first_name'] is not None and cols_map['last_name'] is not None:
-                    first = parts[cols_map['first_name']].strip()
-                    last = parts[cols_map['last_name']].strip()
-                    full_name = f"{first} {last}".strip()
-                elif cols_map['first_name'] is not None:
-                    full_name = parts[cols_map['first_name']].strip()
-                else:
-                    full_name = ''
-                
-                # Телефон
-                phone_raw = parts[cols_map['phone']].strip() if cols_map['phone'] is not None else ''
-                phone = normalize_phone(phone_raw)
-                
-                # Email
-                email = parts[cols_map['email']].strip() if cols_map['email'] is not None else ''
-                
-                # Адрес
-                address = parts[cols_map['address']].strip() if cols_map['address'] is not None else ''
-                
-                # Паспорт
-                passport = parts[cols_map['passport']].strip() if cols_map['passport'] is not None else ''
-                
-                # Дата рождения
-                birth_date = parts[cols_map['birth_date']].strip() if cols_map['birth_date'] is not None else ''
-                
-                # Соцсети (приоритет: ID > ник)
-                social_vk = ''
-                if cols_map['social_vk'] is not None:
-                    social_vk = parts[cols_map['social_vk']].strip()
-                    # Если это число — оставляем как есть (ID)
-                    # Если строка — тоже оставляем (может быть ник)
-                
-                social_tg = parts[cols_map['social_tg']].strip() if cols_map['social_tg'] is not None else ''
-                social_ok = parts[cols_map['social_ok']].strip() if cols_map['social_ok'] is not None else ''
-                
-                if not full_name and not phone and not email:
+                if not row or all(cell.strip() == '' for cell in row):
                     continue
-                
+
+                full_name = ''
+                phone = None
+                email = ''
+                address = ''
+                school = ''
+                class_name = ''
+                class_teacher = ''
+                inn = ''
+                passport = ''
+                birth_date = ''
+                social_vk = ''
+                social_tg = ''
+                social_ok = ''
+
+                if cols['full_name'] is not None and cols['full_name'] < len(row):
+                    full_name = row[cols['full_name']].strip()
+                if cols['phone'] is not None and cols['phone'] < len(row):
+                    phone = normalize_phone(row[cols['phone']].strip())
+                if cols['email'] is not None and cols['email'] < len(row):
+                    email = row[cols['email']].strip()
+                if cols['address'] is not None and cols['address'] < len(row):
+                    address = row[cols['address']].strip()
+                if cols['school'] is not None and cols['school'] < len(row):
+                    school = row[cols['school']].strip()
+                if cols['class'] is not None and cols['class'] < len(row):
+                    class_name = row[cols['class']].strip()
+                if cols['class_teacher'] is not None and cols['class_teacher'] < len(row):
+                    class_teacher = row[cols['class_teacher']].strip()
+                if cols['inn'] is not None and cols['inn'] < len(row):
+                    inn = row[cols['inn']].strip()
+                if cols['passport'] is not None and cols['passport'] < len(row):
+                    passport = row[cols['passport']].strip()
+                if cols['birth_date'] is not None and cols['birth_date'] < len(row):
+                    birth_date = row[cols['birth_date']].strip()
+                if cols['social_vk'] is not None and cols['social_vk'] < len(row):
+                    social_vk = row[cols['social_vk']].strip()
+                if cols['social_tg'] is not None and cols['social_tg'] < len(row):
+                    social_tg = row[cols['social_tg']].strip()
+                if cols['social_ok'] is not None and cols['social_ok'] < len(row):
+                    social_ok = row[cols['social_ok']].strip()
+
+                if not full_name and not phone:
+                    continue
+
                 await conn.execute('''
                     INSERT INTO people (
                         phone, email, full_name, address,
                         social_vk, social_tg, social_ok,
-                        passport, birth_date
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                        passport, birth_date,
+                        school, class, inn, class_teacher
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                     ON CONFLICT (id) DO NOTHING
-                ''', phone, email, full_name, address, social_vk, social_tg, social_ok, passport, birth_date)
-                
+                ''', phone, email, full_name, address, social_vk, social_tg, social_ok, passport, birth_date, school, class_name, inn, class_teacher)
+
                 count += 1
-            
+                if count % 100 == 0:
+                    print(f"   📊 Импортировано: {count}")
+
             print(f"   ✅ Импортировано {count} записей")
             return count
-            
+
     except Exception as e:
-        print(f"❌ Ошибка импорта {filename}: {e}")
+        print(f"❌ Ошибка импорта {os.path.basename(csv_path)}: {e}")
         return 0
 
-# ===== ОСНОВНАЯ ФУНКЦИЯ =====
 async def main():
-    print("🔥 УНИВЕРСАЛЬНЫЙ ИМПОРТ В TIGERDATA")
+    print("🔥 УНИВЕРСАЛЬНЫЙ ИМПОРТ (С ИНН, ШКОЛОЙ, КЛАССОМ И КЛАССНЫМ РУКОВОДИТЕЛЕМ)")
     print("═" * 60)
-    
+
     if not os.path.exists(INPUT_FOLDER):
         os.makedirs(INPUT_FOLDER)
-        print(f"📁 Папка '{INPUT_FOLDER}' создана. Положите туда CSV-файлы.")
+        print(f"📁 Папка '{INPUT_FOLDER}' создана. Положите туда CSV или архивы.")
         return
-    
-    csv_files = []
+
+    all_files = []
     for root, _, files in os.walk(INPUT_FOLDER):
         for f in files:
-            if f.endswith('.csv'):
-                csv_files.append(os.path.join(root, f))
-    
-    if not csv_files:
-        print("❌ В папке 'databases' нет CSV-файлов.")
+            all_files.append(os.path.join(root, f))
+
+    if not all_files:
+        print("❌ В папке 'databases' нет файлов.")
         return
-    
-    print(f"📂 Найдено CSV-файлов: {len(csv_files)}")
-    
+
+    print(f"📂 Найдено файлов: {len(all_files)}")
+
+    temp_dir = tempfile.mkdtemp()
+    csv_files = []
+
+    for file_path in all_files:
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext in ['.rar', '.7z', '.zip']:
+            print(f"📦 Распаковка: {os.path.basename(file_path)}")
+            if extract_archive(file_path, temp_dir, ARCHIVE_PASSWORD):
+                csv_files.extend(find_csv_files(temp_dir))
+        elif ext == '.csv':
+            csv_files.append(file_path)
+
+    if not csv_files:
+        print("❌ Не найдено CSV-файлов после распаковки.")
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return
+
+    print(f"📄 Найдено CSV-файлов: {len(csv_files)}")
+    for f in csv_files:
+        print(f"   {f}")
+
     try:
         pool = await asyncpg.create_pool(DATABASE_URL)
         print("✅ Подключение к TigerData установлено")
     except Exception as e:
-        print(f"❌ Ошибка подключения к TigerData: {e}")
+        print(f"❌ Ошибка подключения: {e}")
         return
-    
+
     total = 0
     async with pool.acquire() as conn:
         for csv_path in csv_files:
-            count = await import_csv(csv_path, conn)
+            count = await import_csv_file(csv_path, conn)
             total += count
-    
+
     await pool.close()
+    shutil.rmtree(temp_dir, ignore_errors=True)
     print(f"\n✅ Импортировано ВСЕГО: {total} записей")
 
 if __name__ == "__main__":

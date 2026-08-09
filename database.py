@@ -1,13 +1,40 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import asyncpg
+import hashlib
+import json
+import random
+import string
+from datetime import datetime, timedelta
 from config import DATABASE_URL
 
 pool = None
 
+# ===== ИНИЦИАЛИЗАЦИЯ =====
 async def init_db():
     global pool
     if pool is None:
         pool = await asyncpg.create_pool(DATABASE_URL)
     async with pool.acquire() as conn:
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS people (
+                id SERIAL PRIMARY KEY,
+                phone VARCHAR(20),
+                email VARCHAR(255),
+                full_name TEXT,
+                address TEXT,
+                social_vk VARCHAR(50),
+                social_tg VARCHAR(50),
+                social_ok VARCHAR(50),
+                passport VARCHAR(20),
+                birth_date TEXT,
+                school TEXT,
+                class VARCHAR(20),
+                inn VARCHAR(20),
+                class_teacher TEXT
+            )
+        ''')
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS subscriptions (
                 user_id BIGINT PRIMARY KEY,
@@ -42,30 +69,15 @@ async def init_db():
             )
         ''')
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS people (
-                id SERIAL PRIMARY KEY,
-                phone VARCHAR(20),
-                email VARCHAR(255),
-                full_name TEXT,
-                address TEXT,
-                social_vk VARCHAR(50),
-                social_tg VARCHAR(50),
-                social_ok VARCHAR(50),
-                passport VARCHAR(20),
-                birth_date TEXT
-            )
-        ''')
-        await conn.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id BIGINT PRIMARY KEY,
                 free_queries INTEGER DEFAULT 2
             )
         ''')
-        print("✅ Все таблицы созданы (TigerData)")
+        print("✅ База данных инициализирована")
 
 # ===== ПОДПИСКИ =====
 async def is_subscription_active(user_id: int) -> bool:
-    from datetime import datetime
     async with pool.acquire() as conn:
         row = await conn.fetchrow('SELECT subscription_end FROM subscriptions WHERE user_id = $1', user_id)
         if row:
@@ -73,7 +85,6 @@ async def is_subscription_active(user_id: int) -> bool:
     return False
 
 async def activate_subscription(user_id: int, days: int = 30, promo_code: str = None):
-    from datetime import datetime, timedelta
     end_date = datetime.now() + timedelta(days=days)
     async with pool.acquire() as conn:
         await conn.execute('''
@@ -83,7 +94,6 @@ async def activate_subscription(user_id: int, days: int = 30, promo_code: str = 
         ''', user_id, end_date, promo_code)
 
 async def get_subscription_info(user_id: int) -> dict:
-    from datetime import datetime
     async with pool.acquire() as conn:
         row = await conn.fetchrow('SELECT subscription_end, promo_code FROM subscriptions WHERE user_id = $1', user_id)
         if row:
@@ -93,7 +103,6 @@ async def get_subscription_info(user_id: int) -> dict:
 
 # ===== ПРОМОКОДЫ =====
 def generate_promo_code():
-    import random, string
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
 async def add_promo_code(code: str, duration_days: int, created_by: int):
@@ -111,14 +120,29 @@ async def get_promo_duration(code: str) -> int:
             return row['duration_days']
     return 0
 
-# ===== ПОИСК В БД =====
+# ===== ПОИСК (ИСПРАВЛЕННЫЙ) =====
 async def search_db(query: str):
+    # Разбиваем запрос на отдельные слова
+    words = [w.strip() for w in query.split() if w.strip()]
+    if not words:
+        return []
+
+    # Строим условия для каждого слова
+    conditions = []
+    params = []
+    for word in words:
+        conditions.append(f"(phone ILIKE ${len(params)+1} OR email ILIKE ${len(params)+2} OR full_name ILIKE ${len(params)+3})")
+        params.extend([f'%{word}%', f'%{word}%', f'%{word}%'])
+
+    # Объединяем через AND (должны совпасть все слова)
+    sql_query = f"""
+        SELECT * FROM people 
+        WHERE {' AND '.join(conditions)}
+        LIMIT 20
+    """
+    
     async with pool.acquire() as conn:
-        rows = await conn.fetch('''
-            SELECT * FROM people 
-            WHERE phone ILIKE $1 OR email ILIKE $1 OR full_name ILIKE $1
-            LIMIT 20
-        ''', f'%{query}%')
+        rows = await conn.fetch(sql_query, *params)
         return [dict(row) for row in rows]
 
 async def log_search(user_id: int, query: str, result_count: int):
@@ -130,7 +154,6 @@ async def log_search(user_id: int, query: str, result_count: int):
 
 # ===== КЕШ OSINT =====
 def get_cache_key(query: str, qtype: str) -> str:
-    import hashlib
     return hashlib.md5(f"{qtype}:{query}".encode()).hexdigest()
 
 async def get_cached_result(query_hash: str) -> dict:
@@ -144,7 +167,6 @@ async def get_cached_result(query_hash: str) -> dict:
     return None
 
 async def save_to_cache(query_hash: str, qtype: str, query: str, result: dict):
-    import json
     async with pool.acquire() as conn:
         await conn.execute('''
             INSERT INTO osint_cache (query_hash, query_type, query_value, result)
