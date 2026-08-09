@@ -120,14 +120,29 @@ async def get_promo_duration(code: str) -> int:
             return row['duration_days']
     return 0
 
-# ===== ПОИСК =====
+# ===== ПОИСК (ИСПРАВЛЕННЫЙ) =====
 async def search_db(query: str):
+    # Разбиваем запрос на отдельные слова
+    words = [w.strip() for w in query.split() if w.strip()]
+    if not words:
+        return []
+
+    # Строим условия для каждого слова
+    conditions = []
+    params = []
+    for word in words:
+        conditions.append(f"(phone ILIKE ${len(params)+1} OR email ILIKE ${len(params)+2} OR full_name ILIKE ${len(params)+3})")
+        params.extend([f'%{word}%', f'%{word}%', f'%{word}%'])
+
+    # Объединяем через AND (должны совпасть все слова)
+    sql_query = f"""
+        SELECT * FROM people 
+        WHERE {' AND '.join(conditions)}
+        LIMIT 20
+    """
+    
     async with pool.acquire() as conn:
-        rows = await conn.fetch('''
-            SELECT * FROM people 
-            WHERE phone ILIKE $1 OR email ILIKE $1 OR full_name ILIKE $1
-            LIMIT 20
-        ''', f'%{query}%')
+        rows = await conn.fetch(sql_query, *params)
         return [dict(row) for row in rows]
 
 async def log_search(user_id: int, query: str, result_count: int):
