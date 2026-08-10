@@ -43,179 +43,279 @@ def main_menu():
     )
 
 def generate_html_report(query: str, db_results: list, osint_result: dict) -> str:
+    avatar_url = "https://ui-avatars.com/api/?name=OSINT&background=0D8ABC&color=fff&size=128"
+    if osint_result and isinstance(osint_result, dict):
+        osint_data = osint_result.get('result', {})
+        if osint_data.get('truecaller') and osint_data['truecaller'].get('avatar'):
+            avatar_url = osint_data['truecaller']['avatar']
+        elif osint_data.get('vk') and osint_data['vk'] and osint_data['vk'][0].get('photo_200'):
+            avatar_url = osint_data['vk'][0]['photo_200']
+
     html = f"""<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Отчёт по запросу: {query}</title>
+    <title>OSINT Report: {query}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz@14..32&display=swap" rel="stylesheet">
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #0a0a0a;
-            color: #e0e0e0;
-            padding: 30px;
+            font-family: 'Inter', sans-serif;
+            background: #0f0f1a;
+            color: #e2e8f0;
+            padding: 24px;
         }}
         .container {{
-            max-width: 1100px;
+            max-width: 820px;
             margin: 0 auto;
-            background: #1a1a1a;
-            padding: 30px;
-            border-radius: 16px;
-            border: 1px solid #333;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.8);
-            overflow-x: auto;
+            background: #1a1a2e;
+            border-radius: 24px;
+            padding: 24px;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8);
+            border: 1px solid #2d2d44;
         }}
-        h1 {{ color: #00ff88; border-bottom: 3px solid #00ff88; padding-bottom: 15px; font-size: 28px; }}
-        .query-box {{
-            background: #2a2a2a;
-            padding: 15px;
-            border-radius: 10px;
-            font-family: monospace;
-            font-size: 18px;
-            margin: 20px 0;
-            border-left: 4px solid #00ff88;
+        .header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #2d2d44;
+            padding-bottom: 16px;
+            margin-bottom: 20px;
         }}
-        .timestamp {{ color: #888; font-size: 14px; margin-bottom: 25px; }}
-        .section {{
-            margin: 25px 0;
-            padding: 20px;
-            background: #222;
-            border-radius: 12px;
-            border-left: 5px solid #00ff88;
+        .header-left {{
+            display: flex;
+            align-items: center;
+            gap: 12px;
         }}
-        .section h2 {{ color: #00ff88; font-size: 20px; margin-bottom: 15px; }}
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-            table-layout: fixed;
-        }}
-        th, td {{
-            padding: 12px 10px;
-            text-align: left;
-            border-bottom: 1px solid #333;
-            word-wrap: break-word;
-        }}
-        th {{ background: #2a2a2a; color: #00ff88; font-weight: bold; }}
-        td {{ color: #ccc; }}
-        .empty {{ color: #888; font-style: italic; }}
-        .vk-link {{
-            display: inline-block;
-            margin-top: 10px;
-            padding: 8px 16px;
-            background: #2a6b8f;
-            color: #fff;
-            border-radius: 8px;
-            text-decoration: none;
-            font-weight: bold;
-            transition: 0.3s;
-        }}
-        .vk-link:hover {{ background: #1e4f6b; text-decoration: underline; }}
-        .footer {{
-            margin-top: 40px;
-            padding-top: 20px;
-            border-top: 1px solid #333;
+        .badge {{
+            background: #00ff88;
+            color: #0f0f1a;
             font-size: 12px;
-            color: #555;
-            text-align: center;
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: 20px;
+            text-transform: uppercase;
         }}
-        .footer span {{ color: #00ff88; }}
-        .col-id {{ width: 5%; }}
-        .col-name {{ width: 25%; }}
-        .col-phone {{ width: 20%; }}
-        .col-email {{ width: 20%; }}
-        .col-address {{ width: 20%; }}
-        .col-vk {{ width: 10%; }}
-        .osint-item {{ margin: 5px 0; }}
+        .query-title {{
+            font-size: 22px;
+            font-weight: 600;
+            background: #2d2d44;
+            padding: 4px 12px;
+            border-radius: 8px;
+            color: #00ff88;
+        }}
+        .profile-card {{
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            background: #16162b;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid #2d2d44;
+        }}
+        .avatar {{
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            background: #2d2d44;
+            object-fit: cover;
+            border: 2px solid #00ff88;
+        }}
+        .profile-info h2 {{
+            font-size: 24px;
+            font-weight: 700;
+        }}
+        .profile-info .phone {{
+            color: #00ff88;
+            font-size: 18px;
+            font-weight: 500;
+        }}
+        .profile-info .meta {{
+            color: #94a3b8;
+            font-size: 14px;
+        }}
+        .stats-grid {{
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 20px;
+        }}
+        .stat-card {{
+            background: #16162b;
+            border-radius: 12px;
+            padding: 14px;
+            text-align: center;
+            border: 1px solid #2d2d44;
+        }}
+        .stat-card .label {{
+            color: #94a3b8;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }}
+        .stat-card .value {{
+            font-size: 20px;
+            font-weight: 700;
+            color: #00ff88;
+        }}
+        .result-list {{
+            background: #16162b;
+            border-radius: 16px;
+            padding: 16px;
+            border: 1px solid #2d2d44;
+            margin-bottom: 20px;
+        }}
+        .result-item {{
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #252540;
+        }}
+        .result-item:last-child {{ border-bottom: none; }}
+        .result-name {{ font-weight: 600; }}
+        .result-phone {{ color: #00ff88; }}
+        .osint-block {{
+            background: #16162b;
+            border-radius: 16px;
+            padding: 16px;
+            border: 1px solid #2d2d44;
+            margin-top: 16px;
+        }}
+        .osint-item {{
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 0;
+            border-bottom: 1px solid #252540;
+        }}
+        .osint-item:last-child {{ border-bottom: none; }}
+        .osint-icon {{
+            width: 28px;
+            text-align: center;
+            font-size: 20px;
+        }}
+        .osint-label {{ color: #94a3b8; font-size: 14px; }}
+        .osint-value {{ font-weight: 600; }}
+        .osint-value.found {{ color: #00ff88; }}
+        .osint-value.not-found {{ color: #f87171; }}
+        .footer {{
+            text-align: center;
+            color: #4a4a6a;
+            font-size: 13px;
+            margin-top: 24px;
+            border-top: 1px solid #2d2d44;
+            padding-top: 16px;
+        }}
+        @media (max-width: 600px) {{
+            .profile-card {{ flex-direction: column; text-align: center; }}
+            .stats-grid {{ grid-template-columns: 1fr 1fr; }}
+        }}
     </style>
 </head>
 <body>
 <div class="container">
-    <h1>🔍 ОТЧЁТ ПО ЗАПРОСУ</h1>
-    <div class="query-box">📌 {query}</div>
-    <div class="timestamp">📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+    <div class="header">
+        <div class="header-left">
+            <span class="badge">🔍 OSINT</span>
+            <span class="query-title">{query}</span>
+        </div>
+        <span style="font-size:12px;color:#4a4a6a;">{datetime.now().strftime('%H:%M %d.%m.%Y')}</span>
+    </div>
 
-    <div class="section">
-        <h2>📊 БАЗА ДАННЫХ</h2>
-        <table>
-            <colgroup>
-                <col class="col-id">
-                <col class="col-name">
-                <col class="col-phone">
-                <col class="col-email">
-                <col class="col-address">
-                <col class="col-vk">
-            </colgroup>
-            <tr>
-                <th>#</th>
-                <th>ФИО</th>
-                <th>Телефон</th>
-                <th>Email</th>
-                <th>Адрес</th>
-                <th>VK</th>
-            </tr>
+    <div class="profile-card">
+        <img class="avatar" src="{avatar_url}" alt="avatar" onerror="this.src='https://ui-avatars.com/api/?name=OSINT&background=2d2d44&color=fff&size=128'">
+        <div class="profile-info">
+            <h2>{db_results[0].get('full_name', '—') if db_results else '—'}</h2>
+            <div class="phone">📞 {db_results[0].get('phone', '—') if db_results else '—'}</div>
+            <div class="meta">✉️ {db_results[0].get('email', '—') if db_results else '—'}</div>
+        </div>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="label">Найдено в БД</div>
+            <div class="value">{len(db_results)}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">OSINT-источников</div>
+            <div class="value">{len(osint_result.get('result', {})) if osint_result else 0}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Время</div>
+            <div class="value">⏱️ ~1.2с</div>
+        </div>
+    </div>
+
+    <div class="result-list">
+        <div style="display:flex;justify-content:space-between;margin-bottom:12px;color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:0.5px;">
+            <span>Имя</span>
+            <span>Телефон</span>
+        </div>
 """
 
     if db_results:
-        for i, row in enumerate(db_results[:20], 1):
-            vk_link = "—"
-            if row.get('social_vk'):
-                vk_id = row['social_vk']
-                if str(vk_id).isdigit():
-                    vk_link = f'<a href="https://vk.com/id{vk_id}" target="_blank" style="color:#00ff88;text-decoration:none;">id{vk_id}</a>'
-                else:
-                    vk_link = f'<a href="https://vk.com/{vk_id}" target="_blank" style="color:#00ff88;text-decoration:none;">{vk_id}</a>'
-            elif row.get('domain'):
-                vk_id = row['domain']
-                vk_link = f'<a href="https://vk.com/{vk_id}" target="_blank" style="color:#00ff88;text-decoration:none;">{vk_id}</a>'
-
+        for row in db_results[:10]:
             html += f"""
-            <tr>
-                <td>{i}</td>
-                <td>{row.get('full_name', '—')}</td>
-                <td>{row.get('phone', '—')}</td>
-                <td>{row.get('email', '—')}</td>
-                <td>{row.get('address', '—')}</td>
-                <td>{vk_link}</td>
-            </tr>
+        <div class="result-item">
+            <span class="result-name">{row.get('full_name', '—')}</span>
+            <span class="result-phone">{row.get('phone', '—')}</span>
+        </div>
             """
     else:
-        html += '<tr><td colspan="6" class="empty">❌ Ничего не найдено</td></tr>'
+        html += '<div style="color:#f87171;padding:20px;text-align:center;">❌ Ничего не найдено в базе</div>'
 
     html += """
-        </table>
     </div>
-    """
+
+    <div class="osint-block">
+        <div style="color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">📡 OSINT</div>
+"""
 
     osint_data = osint_result.get('result', {}) if isinstance(osint_result, dict) else {}
     if osint_data:
-        html += '<div class="section"><h2>📡 OSINT (MegaOSINT)</h2>'
-        if 'telegram' in osint_data and osint_data['telegram'].get('exists'):
-            html += f'<div class="osint-item">📱 Telegram: ✅ <b>@{osint_data["telegram"].get("username", "—")}</b></div>'
-        if 'truecaller' in osint_data and osint_data['truecaller'].get('name', '—') != '—':
-            html += f'<div class="osint-item">📞 Truecaller: <b>{osint_data["truecaller"]["name"]}</b> ({osint_data["truecaller"].get("country", "—")})</div>'
-        if 'sherlock' in osint_data and osint_data['sherlock'] and osint_data['sherlock'] != ['Не найдено']:
-            html += '<div class="osint-item">🔎 Sherlock: <b>' + ', '.join(osint_data['sherlock'][:5]) + '</b></div>'
-        html += '</div>'
+        if osint_data.get('telegram') and osint_data['telegram'].get('exists'):
+            html += f"""
+        <div class="osint-item">
+            <span class="osint-icon">📱</span>
+            <span class="osint-label">Telegram</span>
+            <span class="osint-value found">@{osint_data['telegram']['username']}</span>
+        </div>
+            """
+        if osint_data.get('truecaller') and osint_data['truecaller'].get('name', '—') != '—':
+            html += f"""
+        <div class="osint-item">
+            <span class="osint-icon">📞</span>
+            <span class="osint-label">Truecaller</span>
+            <span class="osint-value found">{osint_data['truecaller']['name']}</span>
+        </div>
+            """
+        if osint_data.get('sherlock') and osint_data['sherlock'] and osint_data['sherlock'] != ['Не найдено']:
+            platforms = ', '.join(osint_data['sherlock'][:6])
+            html += f"""
+        <div class="osint-item">
+            <span class="osint-icon">🔎</span>
+            <span class="osint-label">Sherlock</span>
+            <span class="osint-value found">{platforms}</span>
+        </div>
+            """
+        if osint_data.get('vk') and osint_data['vk']:
+            html += f"""
+        <div class="osint-item">
+            <span class="osint-icon">📸</span>
+            <span class="osint-label">VK</span>
+            <span class="osint-value found">Найдено {len(osint_data['vk'])} профилей</span>
+        </div>
+            """
     else:
-        html += '<div class="section"><h2>📡 OSINT</h2><p class="empty">❌ Данные не найдены</p></div>'
-
-    if db_results:
-        for row in db_results[:1]:
-            if row.get('social_vk'):
-                vk_id = row['social_vk']
-                if str(vk_id).isdigit():
-                    html += f'<div style="text-align:center;margin:20px 0;"><a href="https://vk.com/id{vk_id}" target="_blank" class="vk-link">🔗 Открыть профиль VK</a></div>'
-                else:
-                    html += f'<div style="text-align:center;margin:20px 0;"><a href="https://vk.com/{vk_id}" target="_blank" class="vk-link">🔗 Открыть профиль VK</a></div>'
-            elif row.get('domain'):
-                vk_id = row['domain']
-                html += f'<div style="text-align:center;margin:20px 0;"><a href="https://vk.com/{vk_id}" target="_blank" class="vk-link">🔗 Открыть профиль VK</a></div>'
+        html += '<div style="color:#94a3b8;padding:8px 0;">❌ OSINT-данные не найдены</div>'
 
     html += """
+    </div>
+
     <div class="footer">
-        📌 Отчёт сгенерирован <span>PROBIV+OSINT v7.0 (TORIK)</span>
+        PROBIV+OSINT v7.0 · TORIK
     </div>
 </div>
 </body>
@@ -324,7 +424,6 @@ async def handle_text(message: types.Message):
     user_last_query[message.from_user.id] = message.text.strip()
     await message.answer(f"✅ Сохранено: `{message.text}`\nНажми **«Пробить»**", parse_mode="Markdown", reply_markup=main_menu())
 
-# ===== ОБРАБОТЧИК ЗАГРУЖЕННЫХ ФАЙЛОВ =====
 @dp.message(lambda message: message.document)
 async def handle_uploaded_file(message: types.Message):
     file_name = message.document.file_name
@@ -348,7 +447,6 @@ async def handle_uploaded_file(message: types.Message):
         result = subprocess.run(["python3", "importer.py"], capture_output=True, text=True)
         await message.answer(f"📊 Импорт завершён:\n{result.stdout[-1000:]}")
 
-# ===== ОБРАБОТЧИКИ КНОПОК =====
 @dp.callback_query(lambda c: c.data == "search")
 async def search_callback(callback: types.CallbackQuery):
     await callback.answer("⏳ Поиск...")
@@ -477,7 +575,6 @@ async def promo_prompt(callback: types.CallbackQuery):
     await callback.answer()
     await callback.message.answer("🎟️ **Введите промокод** (8 символов)", parse_mode="Markdown")
 
-# ===== ОБРАБОТЧИК ЗАГРУЖЕННЫХ ФАЙЛОВ (ГАРАНТИРОВАННО РАБОТАЕТ) =====
 @dp.message(lambda message: message.document is not None)
 async def handle_uploaded_file(message: types.Message):
     file_name = message.document.file_name

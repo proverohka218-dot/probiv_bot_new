@@ -11,7 +11,6 @@ from config import DATABASE_URL
 
 pool = None
 
-# ===== ИНИЦИАЛИЗАЦИЯ =====
 async def init_db():
     global pool
     if pool is None:
@@ -76,7 +75,6 @@ async def init_db():
         ''')
         print("✅ База данных инициализирована")
 
-# ===== ПОДПИСКИ =====
 async def is_subscription_active(user_id: int) -> bool:
     async with pool.acquire() as conn:
         row = await conn.fetchrow('SELECT subscription_end FROM subscriptions WHERE user_id = $1', user_id)
@@ -101,7 +99,6 @@ async def get_subscription_info(user_id: int) -> dict:
             return {'active': days_left > 0, 'days_left': max(0, days_left), 'promo_code': row['promo_code']}
     return {'active': False, 'days_left': 0, 'promo_code': None}
 
-# ===== ПРОМОКОДЫ =====
 def generate_promo_code():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
@@ -120,21 +117,17 @@ async def get_promo_duration(code: str) -> int:
             return row['duration_days']
     return 0
 
-# ===== ПОИСК (ИСПРАВЛЕННЫЙ) =====
 async def search_db(query: str):
-    # Разбиваем запрос на отдельные слова
     words = [w.strip() for w in query.split() if w.strip()]
     if not words:
         return []
 
-    # Строим условия для каждого слова
     conditions = []
     params = []
     for word in words:
         conditions.append(f"(phone ILIKE ${len(params)+1} OR email ILIKE ${len(params)+2} OR full_name ILIKE ${len(params)+3})")
         params.extend([f'%{word}%', f'%{word}%', f'%{word}%'])
 
-    # Объединяем через AND (должны совпасть все слова)
     sql_query = f"""
         SELECT * FROM people 
         WHERE {' AND '.join(conditions)}
@@ -152,7 +145,6 @@ async def log_search(user_id: int, query: str, result_count: int):
             VALUES ($1, $2, $3)
         ''', user_id, query, result_count)
 
-# ===== КЕШ OSINT =====
 def get_cache_key(query: str, qtype: str) -> str:
     return hashlib.md5(f"{qtype}:{query}".encode()).hexdigest()
 
@@ -174,7 +166,6 @@ async def save_to_cache(query_hash: str, qtype: str, query: str, result: dict):
             ON CONFLICT (query_hash) DO UPDATE SET result = $4, created_at = NOW()
         ''', query_hash, qtype, query, json.dumps(result, default=str))
 
-# ===== БЕСПЛАТНЫЕ ЗАПРОСЫ =====
 async def get_free_queries(user_id: int) -> int:
     async with pool.acquire() as conn:
         row = await conn.fetchrow('SELECT free_queries FROM users WHERE user_id = $1', user_id)
