@@ -14,6 +14,7 @@ from config import DATABASE_URL
 INPUT_FOLDER = "databases"
 ARCHIVE_PASSWORD = None
 
+# ===== НОРМАЛИЗАЦИЯ ТЕЛЕФОНА =====
 def normalize_phone(phone):
     if not phone:
         return None
@@ -27,10 +28,10 @@ def normalize_phone(phone):
     else:
         return None
 
+# ===== РАСПАКОВКА АРХИВОВ (через 7z/7zz) =====
 def extract_archive(file_path, output_dir, password=None):
     ext = os.path.splitext(file_path)[1].lower()
     
-    # Проверяем наличие 7zz (или 7z) в системе
     if os.system('which 7zz >/dev/null 2>&1') == 0:
         cmd = ['7zz', 'x', file_path, f'-o{output_dir}', '-y']
     elif os.system('which 7z >/dev/null 2>&1') == 0:
@@ -50,37 +51,36 @@ def extract_archive(file_path, output_dir, password=None):
         print(f"❌ Ошибка распаковки {os.path.basename(file_path)}: {e}")
         return False
 
-def find_csv_files(folder):
-    csv_files = []
-    for root, _, files in os.walk(folder):
-        for f in files:
-            if f.endswith('.csv'):
-                csv_files.append(os.path.join(root, f))
-    return csv_files
+# ===== ПОИСК ВСЕХ CSV И TXT =====
+def find_data_files(folder):
+    files = []
+    for root, _, items in os.walk(folder):
+        for f in items:
+            if f.endswith('.csv') or f.endswith('.txt'):
+                files.append(os.path.join(root, f))
+    return files
 
+# ===== УМНЫЙ ПОИСК КОЛОНОК (БЕЗ ПРОБЛЕМ) =====
 def detect_column(header_row):
     cols = {}
     lower_headers = [str(h).lower().strip() for h in header_row]
 
-    # ===== РАСШИРЕННЫЙ ПОИСК ШКОЛЫ (100% НАХОДИТ) =====
     keywords = {
-        'full_name': ['фио', 'ф.и.о.', 'fio', 'имя', 'фамилия', 'name', 'fullname', 'ученик', 'учащийся', 'студент', 'сотрудник', 'заказчик', 'клиент', 'контакт', 'лицо', 'человек', 'пользователь'],
-        'phone': ['телефон', 'phone', 'мобильный', 'мобильный телефон', 'номер', 'contact', 'tel', 'whatsapp', 'viber', 'telegram'],
+        'full_name': [
+            'фио', 'ф.и.о.', 'fio', 'имя', 'фамилия', 'name', 'fullname',
+            'клиент', 'клиент фио', 'контактное лицо', 'контакт',
+            'ФИО', 'имя клиента', 'полное имя', 'full name', 'пользователь',
+            'клиент', 'ученик', 'учащийся', 'студент', 'сотрудник', 'человек'
+        ],
+        'phone': [
+            'телефон', 'phone', 'мобильный', 'мобильный телефон', 'номер',
+            'contact', 'tel', 'whatsapp', 'viber', 'telegram', 'номер телефона'
+        ],
         'email': ['email', 'почта', 'e-mail', 'mail', 'эл.почта', 'электронная почта'],
         'address': ['адрес', 'address', 'место', 'проживание', 'регистрация', 'локация', 'location'],
-        
-        # ===== ШКОЛА (ТЕПЕРЬ 100% НАХОДИТ) =====
-        'school': [
-            'школа', 'school', 'гимназия', 'лицей', 
-            'учебное заведение', 'место учебы', 'education', 'учится',
-            'образовательное учреждение', 'оу', 'обр. учреждение',
-            'наименование школы', 'название школы', 'школа №', 'шк №',
-            'место обучения', 'учебное учреждение', 'учреждение',
-            'школьное учреждение', 'средняя школа', 'сош', 'мбоу', 'моу'
-        ],
-        
+        'school': ['школа', 'school', 'гимназия', 'лицей', 'учебное заведение', 'образование'],
         'class': ['класс', 'class', 'группа', 'курс', 'параллель', 'year', 'grade'],
-        'class_teacher': ['классный руководитель', 'классный', 'class teacher', 'учитель', 'преподаватель', 'куратор', 'наставник', 'классрук'],
+        'class_teacher': ['классный руководитель', 'классный', 'class teacher', 'учитель', 'преподаватель', 'куратор', 'наставник'],
         'inn': ['инн', 'inn', 'иин', 'налоговый номер', 'идентификационный номер'],
         'passport': ['паспорт', 'passport', 'серия', 'номер паспорта', 'удостоверение', 'документ'],
         'birth_date': ['дата рождения', 'birth', 'день рождения', 'год рождения', 'рождения', 'age', 'возраст'],
@@ -108,18 +108,27 @@ def detect_column(header_row):
 
     return cols
 
-async def import_csv_file(csv_path: str, conn):
-    print(f"📥 Импортирую: {os.path.basename(csv_path)}")
+# ===== ИМПОРТ ФАЙЛА (CSV ИЛИ TXT) =====
+async def import_data_file(file_path: str, conn):
+    print(f"📥 Импортирую: {os.path.basename(file_path)}")
     try:
-        with open(csv_path, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             first_line = f.readline()
-            delim = '|' if '|' in first_line else ';' if ';' in first_line else ','
+            # Автоопределение разделителя: ; , или таб
+            if '\t' in first_line:
+                delim = '\t'
+            elif ';' in first_line:
+                delim = ';'
+            elif '|' in first_line:
+                delim = '|'
+            else:
+                delim = ','
 
-        with open(csv_path, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             reader = csv.reader(f, delimiter=delim)
             header_row = next(reader, None)
             if not header_row:
-                print(f"⚠️ Файл пустой: {os.path.basename(csv_path)}")
+                print(f"⚠️ Файл пустой: {os.path.basename(file_path)}")
                 return 0
 
             cols = detect_column(header_row)
@@ -192,16 +201,17 @@ async def import_csv_file(csv_path: str, conn):
             return count
 
     except Exception as e:
-        print(f"❌ Ошибка импорта {os.path.basename(csv_path)}: {e}")
+        print(f"❌ Ошибка импорта {os.path.basename(file_path)}: {e}")
         return 0
 
+# ===== ГЛАВНАЯ ФУНКЦИЯ =====
 async def main():
-    print("🔥 УНИВЕРСАЛЬНЫЙ ИМПОРТ (С ИНН, ШКОЛОЙ, КЛАССОМ И КЛАССНЫМ РУКОВОДИТЕЛЕМ)")
+    print("🔥 УНИВЕРСАЛЬНЫЙ ИМПОРТ (CSV + TXT, ВСЕ РАЗДЕЛИТЕЛИ)")
     print("═" * 60)
 
     if not os.path.exists(INPUT_FOLDER):
         os.makedirs(INPUT_FOLDER)
-        print(f"📁 Папка '{INPUT_FOLDER}' создана. Положите туда CSV или архивы.")
+        print(f"📁 Папка '{INPUT_FOLDER}' создана. Положите туда файлы.")
         return
 
     all_files = []
@@ -216,24 +226,24 @@ async def main():
     print(f"📂 Найдено файлов: {len(all_files)}")
 
     temp_dir = tempfile.mkdtemp()
-    csv_files = []
+    data_files = []
 
     for file_path in all_files:
         ext = os.path.splitext(file_path)[1].lower()
         if ext in ['.rar', '.7z', '.zip']:
             print(f"📦 Распаковка: {os.path.basename(file_path)}")
             if extract_archive(file_path, temp_dir, ARCHIVE_PASSWORD):
-                csv_files.extend(find_csv_files(temp_dir))
-        elif ext == '.csv':
-            csv_files.append(file_path)
+                data_files.extend(find_data_files(temp_dir))
+        elif ext in ['.csv', '.txt']:
+            data_files.append(file_path)
 
-    if not csv_files:
-        print("❌ Не найдено CSV-файлов после распаковки.")
+    if not data_files:
+        print("❌ Не найдено CSV/TXT-файлов после распаковки.")
         shutil.rmtree(temp_dir, ignore_errors=True)
         return
 
-    print(f"📄 Найдено CSV-файлов: {len(csv_files)}")
-    for f in csv_files:
+    print(f"📄 Найдено файлов для импорта: {len(data_files)}")
+    for f in data_files:
         print(f"   {f}")
 
     try:
@@ -245,8 +255,8 @@ async def main():
 
     total = 0
     async with pool.acquire() as conn:
-        for csv_path in csv_files:
-            count = await import_csv_file(csv_path, conn)
+        for file_path in data_files:
+            count = await import_data_file(file_path, conn)
             total += count
 
     await pool.close()
