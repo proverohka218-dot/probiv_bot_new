@@ -14,7 +14,6 @@ from config import DATABASE_URL
 INPUT_FOLDER = "databases"
 ARCHIVE_PASSWORD = None
 
-# ===== НОРМАЛИЗАЦИЯ ТЕЛЕФОНА =====
 def normalize_phone(phone):
     if not phone:
         return None
@@ -28,10 +27,8 @@ def normalize_phone(phone):
     else:
         return None
 
-# ===== РАСПАКОВКА АРХИВОВ (через 7z/7zz) =====
 def extract_archive(file_path, output_dir, password=None):
     ext = os.path.splitext(file_path)[1].lower()
-    
     if os.system('which 7zz >/dev/null 2>&1') == 0:
         cmd = ['7zz', 'x', file_path, f'-o{output_dir}', '-y']
     elif os.system('which 7z >/dev/null 2>&1') == 0:
@@ -39,10 +36,8 @@ def extract_archive(file_path, output_dir, password=None):
     else:
         print("❌ 7zz/7z не найден. Установи p7zip.")
         return False
-
     if password:
         cmd.append('-p' + password)
-
     try:
         subprocess.run(cmd, check=True, capture_output=True)
         print(f"✅ Распакован: {os.path.basename(file_path)}")
@@ -51,7 +46,6 @@ def extract_archive(file_path, output_dir, password=None):
         print(f"❌ Ошибка распаковки {os.path.basename(file_path)}: {e}")
         return False
 
-# ===== ПОИСК ВСЕХ CSV И TXT =====
 def find_data_files(folder):
     files = []
     for root, _, items in os.walk(folder):
@@ -60,61 +54,33 @@ def find_data_files(folder):
                 files.append(os.path.join(root, f))
     return files
 
-# ===== УМНЫЙ ПОИСК КОЛОНОК (БЕЗ ПРОБЛЕМ) =====
 def detect_column(header_row):
-    cols = {}
-    lower_headers = [str(h).lower().strip() for h in header_row]
-
-    keywords = {
-        'full_name': [
-            'фио', 'ф.и.о.', 'fio', 'имя', 'фамилия', 'name', 'fullname',
-            'клиент', 'клиент фио', 'контактное лицо', 'контакт',
-            'ФИО', 'имя клиента', 'полное имя', 'full name', 'пользователь',
-            'клиент', 'ученик', 'учащийся', 'студент', 'сотрудник', 'человек'
-        ],
-        'phone': [
-            'телефон', 'phone', 'мобильный', 'мобильный телефон', 'номер',
-            'contact', 'tel', 'whatsapp', 'viber', 'telegram', 'номер телефона'
-        ],
-        'email': ['email', 'почта', 'e-mail', 'mail', 'эл.почта', 'электронная почта'],
-        'address': ['адрес', 'address', 'место', 'проживание', 'регистрация', 'локация', 'location'],
-        'school': ['школа', 'school', 'гимназия', 'лицей', 'учебное заведение', 'образование'],
-        'class': ['класс', 'class', 'группа', 'курс', 'параллель', 'year', 'grade'],
-        'class_teacher': ['классный руководитель', 'классный', 'class teacher', 'учитель', 'преподаватель', 'куратор', 'наставник'],
-        'inn': ['инн', 'inn', 'иин', 'налоговый номер', 'идентификационный номер'],
-        'passport': ['паспорт', 'passport', 'серия', 'номер паспорта', 'удостоверение', 'документ'],
-        'birth_date': ['дата рождения', 'birth', 'день рождения', 'год рождения', 'рождения', 'age', 'возраст'],
-        'social_vk': ['vk', 'вк', 'vkontakte'],
-        'social_tg': ['tg', 'telegram', 'телеграм'],
-        'social_ok': ['ok', 'одноклассники', 'odnoklassniki'],
+    cols = {
+        'full_name': 0,
+        'phone': 1,
+        'email': None,
+        'address': None,
+        'school': None,
+        'class': None,
+        'class_teacher': None,
+        'inn': None,
+        'passport': None,
+        'birth_date': None,
+        'social_vk': None,
+        'social_tg': None,
+        'social_ok': None,
     }
-
-    for field, words in keywords.items():
-        found = False
-        for i, header in enumerate(lower_headers):
-            if any(word in header for word in words):
-                cols[field] = i
-                found = True
-                break
-        if not found:
-            cols[field] = None
-
-    if cols['full_name'] is None and cols['phone'] is None:
-        if len(header_row) >= 2:
-            cols['full_name'] = 0
-            cols['phone'] = 1
-        elif len(header_row) == 1:
-            cols['full_name'] = 0
-
     return cols
 
-# ===== ИМПОРТ ФАЙЛА (CSV ИЛИ TXT) =====
 async def import_data_file(file_path: str, conn):
     print(f"📥 Импортирую: {os.path.basename(file_path)}")
+    
+    # ===== УВЕЛИЧИВАЕМ ЛИМИТ ДЛИНЫ СТРОКИ (ИСПРАВЛЕНИЕ ОШИБКИ) =====
+    csv.field_size_limit(10_000_000)
+    
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             first_line = f.readline()
-            # Автоопределение разделителя: ; , или таб
             if '\t' in first_line:
                 delim = '\t'
             elif ';' in first_line:
@@ -132,66 +98,32 @@ async def import_data_file(file_path: str, conn):
                 return 0
 
             cols = detect_column(header_row)
-            print(f"   🔍 Найдены колонки: {cols}")
+            print(f"   🔍 Телефон: колонка {cols['phone']}, Имя: колонка {cols['full_name']}")
 
             count = 0
             for row in reader:
                 if not row or all(cell.strip() == '' for cell in row):
                     continue
 
-                full_name = ''
                 phone = None
-                email = ''
-                address = ''
-                school = ''
-                class_name = ''
-                class_teacher = ''
-                inn = ''
-                passport = ''
-                birth_date = ''
-                social_vk = ''
-                social_tg = ''
-                social_ok = ''
+                full_name = ''
 
-                if cols['full_name'] is not None and cols['full_name'] < len(row):
-                    full_name = row[cols['full_name']].strip()
                 if cols['phone'] is not None and cols['phone'] < len(row):
                     phone = normalize_phone(row[cols['phone']].strip())
-                if cols['email'] is not None and cols['email'] < len(row):
-                    email = row[cols['email']].strip()
-                if cols['address'] is not None and cols['address'] < len(row):
-                    address = row[cols['address']].strip()
-                if cols['school'] is not None and cols['school'] < len(row):
-                    school = row[cols['school']].strip()
-                if cols['class'] is not None and cols['class'] < len(row):
-                    class_name = row[cols['class']].strip()
-                if cols['class_teacher'] is not None and cols['class_teacher'] < len(row):
-                    class_teacher = row[cols['class_teacher']].strip()
-                if cols['inn'] is not None and cols['inn'] < len(row):
-                    inn = row[cols['inn']].strip()
-                if cols['passport'] is not None and cols['passport'] < len(row):
-                    passport = row[cols['passport']].strip()
-                if cols['birth_date'] is not None and cols['birth_date'] < len(row):
-                    birth_date = row[cols['birth_date']].strip()
-                if cols['social_vk'] is not None and cols['social_vk'] < len(row):
-                    social_vk = row[cols['social_vk']].strip()
-                if cols['social_tg'] is not None and cols['social_tg'] < len(row):
-                    social_tg = row[cols['social_tg']].strip()
-                if cols['social_ok'] is not None and cols['social_ok'] < len(row):
-                    social_ok = row[cols['social_ok']].strip()
+                if cols['full_name'] is not None and cols['full_name'] < len(row):
+                    full_name = row[cols['full_name']].strip()
 
                 if not full_name and not phone:
                     continue
 
                 await conn.execute('''
-                    INSERT INTO people (
-                        phone, email, full_name, address,
-                        social_vk, social_tg, social_ok,
-                        passport, birth_date,
-                        school, class, inn, class_teacher
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                    INSERT INTO people (phone, email, full_name, address,
+                                        social_vk, social_tg, social_ok,
+                                        passport, birth_date,
+                                        school, class, inn, class_teacher)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                     ON CONFLICT (id) DO NOTHING
-                ''', phone, email, full_name, address, social_vk, social_tg, social_ok, passport, birth_date, school, class_name, inn, class_teacher)
+                ''', phone, '', full_name, '', '', '', '', '', '', '', '', '', '')
 
                 count += 1
                 if count % 100 == 0:
@@ -204,11 +136,9 @@ async def import_data_file(file_path: str, conn):
         print(f"❌ Ошибка импорта {os.path.basename(file_path)}: {e}")
         return 0
 
-# ===== ГЛАВНАЯ ФУНКЦИЯ =====
 async def main():
-    print("🔥 УНИВЕРСАЛЬНЫЙ ИМПОРТ (CSV + TXT, ВСЕ РАЗДЕЛИТЕЛИ)")
+    print("🔥 УНИВЕРСАЛЬНЫЙ ИМПОРТ (С ФИКСОМ ДЛИННЫХ СТРОК)")
     print("═" * 60)
-
     if not os.path.exists(INPUT_FOLDER):
         os.makedirs(INPUT_FOLDER)
         print(f"📁 Папка '{INPUT_FOLDER}' создана. Положите туда файлы.")
@@ -224,7 +154,6 @@ async def main():
         return
 
     print(f"📂 Найдено файлов: {len(all_files)}")
-
     temp_dir = tempfile.mkdtemp()
     data_files = []
 
