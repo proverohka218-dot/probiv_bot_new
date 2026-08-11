@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 import asyncpg
@@ -6,6 +6,7 @@ import hashlib
 import json
 import random
 import string
+import re
 from datetime import datetime, timedelta
 from config import DATABASE_URL
 
@@ -118,6 +119,13 @@ async def get_promo_duration(code: str) -> int:
     return 0
 
 async def search_db(query: str):
+    # Если это номер телефона — нормализуем его
+    if re.match(r'^\+?\d{10,15}$', query) or re.match(r'^8\d{10}$', query):
+        raw_number = re.sub(r'[^0-9]', '', query)
+        if raw_number.startswith('8') and len(raw_number) == 11:
+            raw_number = '7' + raw_number[1:]
+        query = raw_number
+
     words = [w.strip() for w in query.split() if w.strip()]
     if not words:
         return []
