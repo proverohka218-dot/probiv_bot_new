@@ -31,7 +31,7 @@ class MegaOSINT:
             except:
                 pass
         
-        # Fallback: бесплатный обход (если ключа нет или он не сработал)
+        # Fallback: бесплатный обход
         url = f"https://truecaller-api.vercel.app/api/search?phone={phone}"
         try:
             async with self.session.get(url, timeout=10) as resp:
@@ -43,7 +43,7 @@ class MegaOSINT:
             pass
         return {'name': '—', 'country': '—', 'carrier': '—', 'spam': False}
     
-    # ===== 2. NUMVERIFY / VERIPHONE (с ключом — точнее, без — бесплатный обход) =====
+    # ===== 2. NUMVERIFY / VERIPHONE =====
     async def numverify_lookup(self, phone: str) -> Dict:
         if self.keys.get('numverify'):
             url = f"http://apilayer.net/api/validate?access_key={self.keys['numverify']}&number={phone}&format=1"
@@ -70,7 +70,7 @@ class MegaOSINT:
             pass
         return {'valid': False, 'country': '—', 'location': '—', 'carrier': '—'}
     
-    # ===== 3. TELEGRAM (всегда по токену) =====
+    # ===== 3. TELEGRAM =====
     async def telegram_lookup(self, phone: str = None, username: str = None) -> Dict:
         result = {'exists': False}
         try:
@@ -95,7 +95,8 @@ class MegaOSINT:
             pass
         return result
     
-    # ===== 4. VK API (с токеном — точнее, без — публичный) =====
+    # ===== 4. VK API =====
+    # Поиск по ФИО / нику
     async def vk_search(self, query: str) -> List[Dict]:
         if self.keys.get('vk'):
             url = "https://api.vk.com/method/users.search"
@@ -113,7 +114,6 @@ class MegaOSINT:
             except:
                 pass
         
-        # Fallback: публичный API без токена
         url = f"https://api.vk.com/method/users.search?q={query}&v=5.131&count=5"
         try:
             async with self.session.get(url, timeout=10) as resp:
@@ -124,9 +124,48 @@ class MegaOSINT:
             pass
         return []
     
-    # ===== 5. SHERLOCK (платный не нужен, всегда бесплатный) =====
+    # ===== 5. VK SEARCH BY PHONE (НОВОЕ) =====
+    async def vk_search_by_phone(self, phone: str) -> Dict:
+        if not self.keys.get('vk'):
+            return {'error': 'Нет VK_TOKEN в настройках'}
+        
+        # Очистка номера: VK принимает 10 цифр (без 7 в начале)
+        clean_phone = re.sub(r'[^0-9]', '', phone)
+        if len(clean_phone) == 11 and clean_phone.startswith('7'):
+            clean_phone = clean_phone[1:]
+        elif len(clean_phone) == 10 and not clean_phone.startswith('7'):
+            clean_phone = '7' + clean_phone
+        
+        url = "https://api.vk.com/method/users.get"
+        params = {
+            'user_ids': clean_phone,
+            'access_token': self.keys['vk'],
+            'v': '5.131',
+            'fields': 'first_name,last_name,domain,photo_200'
+        }
+        
+        try:
+            async with self.session.get(url, params=params, timeout=10) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if 'response' in data and data['response']:
+                        user = data['response'][0]
+                        return {
+                            'exists': True,
+                            'id': user.get('id'),
+                            'first_name': user.get('first_name'),
+                            'last_name': user.get('last_name'),
+                            'domain': user.get('domain'),
+                            'photo': user.get('photo_200'),
+                            'url': f"https://vk.com/{user.get('domain') or 'id' + str(user.get('id'))}"
+                        }
+        except Exception as e:
+            return {'error': str(e)}
+        
+        return {'exists': False}
+    
+    # ===== 6. SHERLOCK =====
     async def sherlock_search(self, username: str) -> List[str]:
-        # Пытаемся использовать sherlock-project, если установлен
         try:
             from sherlock_project import sherlock
             loop = asyncio.get_event_loop()
@@ -136,7 +175,6 @@ class MegaOSINT:
         except:
             pass
         
-        # Fallback: ручной поиск
         platforms = ['GitHub', 'Twitter', 'Instagram', 'VK', 'Reddit', 'YouTube']
         found = []
         for p in platforms:
@@ -149,7 +187,7 @@ class MegaOSINT:
                 continue
         return found if found else ['Не найдено']
     
-    # ===== 6. OPENOSINT (если установлен) =====
+    # ===== 7. OPENOSINT =====
     async def openosint_search(self, query: str, qtype: str = 'username') -> Dict:
         try:
             from openosint import OpenOSINT
@@ -164,7 +202,7 @@ class MegaOSINT:
             pass
         return {'error': 'openosint не установлен'}
     
-    # ===== 7. HUNTER.IO (если есть ключ) =====
+    # ===== 8. HUNTER.IO =====
     async def hunter_verify(self, email: str) -> Dict:
         if self.keys.get('hunter'):
             url = f"https://api.hunter.io/v2/email-verifier?email={email}&api_key={self.keys['hunter']}"
@@ -177,7 +215,7 @@ class MegaOSINT:
                 pass
         return {'status': 'unknown', 'score': 0}
     
-    # ===== 8. DEHASHED (если есть ключи) =====
+    # ===== 9. DEHASHED =====
     async def dehashed_search(self, query: str, qtype: str = 'email') -> List[Dict]:
         if self.keys.get('dehashed_email') and self.keys.get('dehashed_api'):
             url = f"https://api.dehashed.com/search?query={qtype}:{query}"
@@ -191,7 +229,7 @@ class MegaOSINT:
                 pass
         return []
     
-    # ===== 9. EMAILREP (если есть ключ) =====
+    # ===== 10. EMAILREP =====
     async def emailrep_check(self, email: str) -> Dict:
         if self.keys.get('emailrep'):
             url = f"https://emailrep.io/{email}"
@@ -207,7 +245,7 @@ class MegaOSINT:
                 pass
         return {'reputation': 'unknown', 'suspicious': False, 'malicious': False}
     
-    # ===== 10. IP2LOCATION (если есть ключ) =====
+    # ===== 11. IP2LOCATION =====
     async def ip2location(self, ip: str) -> Dict:
         if self.keys.get('ip2location'):
             url = f"https://api.ip2location.io/?ip={ip}&key={self.keys['ip2location']}"
@@ -221,7 +259,6 @@ class MegaOSINT:
             except:
                 pass
         
-        # Fallback: бесплатный ip-api.com
         url = f"http://ip-api.com/json/{ip}?fields=status,message,country,regionName,city,isp,lat,lon,timezone"
         try:
             async with self.session.get(url, timeout=10) as resp:
@@ -234,7 +271,7 @@ class MegaOSINT:
             pass
         return {'city': '—', 'region': '—', 'country': '—', 'isp': '—'}
     
-    # ===== 11. ABUSEIPDB (если есть ключ) =====
+    # ===== 12. ABUSEIPDB =====
     async def abuseipdb(self, ip: str) -> Dict:
         if self.keys.get('abuseipdb'):
             url = f"https://api.abuseipdb.com/api/v2/check?ipAddress={ip}"
@@ -250,7 +287,6 @@ class MegaOSINT:
             except:
                 pass
         
-        # Fallback: бесплатный iptoasn.com
         url = f"https://api.iptoasn.com/v1/as/ip/{ip}"
         try:
             async with self.session.get(url, timeout=10) as resp:
@@ -262,7 +298,7 @@ class MegaOSINT:
             pass
         return {'abuse_score': 0, 'total_reports': 0, 'country': '—', 'is_tor': False}
     
-    # ===== 12. КОМБИНИРОВАННЫЙ ПОИСК (ВСЁ РАЗОМ) =====
+    # ===== 13. КОМБИНИРОВАННЫЙ ПОИСК =====
     async def full_search(self, phone: str = None, email: str = None, 
                           fio: str = None, username: str = None, ip: str = None) -> Dict:
         tasks = {}
@@ -272,7 +308,8 @@ class MegaOSINT:
             tasks['truecaller'] = self.truecaller_lookup(phone)
             tasks['numverify'] = self.numverify_lookup(phone)
             tasks['telegram'] = self.telegram_lookup(phone=phone)
-            tasks['vk'] = self.vk_search(phone)
+            tasks['vk_search'] = self.vk_search(phone)
+            tasks['vk_by_phone'] = self.vk_search_by_phone(phone)  # НОВОЕ
             tasks['openosint_phone'] = self.openosint_search(phone, 'phone')
         
         if email:

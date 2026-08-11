@@ -257,9 +257,18 @@ def generate_html_report(query: str, db_results: list, osint_result: dict) -> st
 
     if db_results:
         for row in db_results[:10]:
+            vk_link = "—"
+            if row.get('domain'):
+                vk_link = f'<a href="https://vk.com/{row["domain"]}" target="_blank" style="color:#00ff88;text-decoration:none;">{row["domain"]}</a>'
+            elif row.get('social_vk'):
+                if str(row['social_vk']).isdigit():
+                    vk_link = f'<a href="https://vk.com/id{row["social_vk"]}" target="_blank" style="color:#00ff88;text-decoration:none;">id{row["social_vk"]}</a>'
+                else:
+                    vk_link = f'<a href="https://vk.com/{row["social_vk"]}" target="_blank" style="color:#00ff88;text-decoration:none;">{row["social_vk"]}</a>'
+
             html += f"""
         <div class="result-item">
-            <span class="result-name">{row.get('full_name', '—')}</span>
+            <span class="result-name">{row.get('full_name', '—')} {vk_link}</span>
             <span class="result-phone">{row.get('phone', '—')}</span>
         </div>
             """
@@ -481,7 +490,12 @@ async def search_callback(callback: types.CallbackQuery):
     if db_results:
         response_text += f"📊 Найдено в БД: {len(db_results)} записей\n"
         for row in db_results[:3]:
-            response_text += f"👤 {row.get('full_name', '—')} | 📞 {row.get('phone', '—')} | ✉️ {row.get('email', '—')}\n"
+            vk_link = ""
+            if row.get('domain'):
+                vk_link = f" vk.com/{row['domain']}"
+            elif row.get('social_vk'):
+                vk_link = f" vk.com/{row['social_vk']}"
+            response_text += f"👤 {row.get('full_name', '—')} {vk_link} | 📞 {row.get('phone', '—')} | ✉️ {row.get('email', '—')}\n"
     else:
         response_text += "❌ В базе ничего не найдено.\n"
 
