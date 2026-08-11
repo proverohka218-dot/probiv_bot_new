@@ -54,30 +54,58 @@ def find_data_files(folder):
                 files.append(os.path.join(root, f))
     return files
 
+# ===== УНИВЕРСАЛЬНЫЙ ПОИСК КОЛОНОК ПО ЗАГОЛОВКАМ =====
 def detect_column(header_row):
-    cols = {
-        'full_name': 0,
-        'phone': 1,
-        'email': None,
-        'address': None,
-        'school': None,
-        'class': None,
-        'class_teacher': None,
-        'inn': None,
-        'passport': None,
-        'birth_date': None,
-        'social_vk': None,
-        'social_tg': None,
-        'social_ok': None,
+    cols = {}
+    lower_headers = [str(h).lower().strip() for h in header_row]
+
+    keywords = {
+        'full_name': [
+            'фио', 'ф.и.о.', 'fio', 'имя', 'фамилия', 'name', 'fullname',
+            'клиент', 'клиент фио', 'контактное лицо', 'контакт',
+            'ФИО', 'имя клиента', 'полное имя', 'full name', 'пользователь',
+            'клиент', 'ученик', 'учащийся', 'студент', 'сотрудник', 'человек'
+        ],
+        'phone': [
+            'телефон', 'phone', 'мобильный', 'мобильный телефон', 'номер',
+            'contact', 'tel', 'whatsapp', 'viber', 'telegram', 'номер телефона',
+            'phone number'
+        ],
+        'email': ['email', 'почта', 'e-mail', 'mail', 'эл.почта', 'электронная почта'],
+        'address': ['адрес', 'address', 'место', 'проживание', 'регистрация', 'локация', 'location'],
+        'school': ['школа', 'school', 'гимназия', 'лицей', 'учебное заведение', 'образование'],
+        'class': ['класс', 'class', 'группа', 'курс', 'параллель', 'year', 'grade'],
+        'class_teacher': ['классный руководитель', 'классный', 'class teacher', 'учитель', 'преподаватель', 'куратор', 'наставник'],
+        'inn': ['инн', 'inn', 'иин', 'налоговый номер', 'идентификационный номер'],
+        'passport': ['паспорт', 'passport', 'серия', 'номер паспорта', 'удостоверение', 'документ'],
+        'birth_date': ['дата рождения', 'birth', 'день рождения', 'год рождения', 'рождения', 'age', 'возраст'],
+        'social_vk': ['vk', 'вк', 'vkontakte'],
+        'social_tg': ['tg', 'telegram', 'телеграм'],
+        'social_ok': ['ok', 'одноклассники', 'odnoklassniki'],
     }
+
+    for field, words in keywords.items():
+        found = False
+        for i, header in enumerate(lower_headers):
+            if any(word in header for word in words):
+                cols[field] = i
+                found = True
+                break
+        if not found:
+            cols[field] = None
+
+    if cols['full_name'] is None and cols['phone'] is None:
+        if len(header_row) >= 2:
+            cols['full_name'] = 0
+            cols['phone'] = 1
+        elif len(header_row) == 1:
+            cols['full_name'] = 0
+
     return cols
 
 async def import_data_file(file_path: str, conn):
     print(f"📥 Импортирую: {os.path.basename(file_path)}")
-    
-    # ===== УВЕЛИЧИВАЕМ ЛИМИТ ДЛИНЫ СТРОКИ (ИСПРАВЛЕНИЕ ОШИБКИ) =====
     csv.field_size_limit(10_000_000)
-    
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             first_line = f.readline()
@@ -98,20 +126,20 @@ async def import_data_file(file_path: str, conn):
                 return 0
 
             cols = detect_column(header_row)
-            print(f"   🔍 Телефон: колонка {cols['phone']}, Имя: колонка {cols['full_name']}")
+            print(f"   🔍 Найдены колонки: {cols}")
 
             count = 0
             for row in reader:
                 if not row or all(cell.strip() == '' for cell in row):
                     continue
 
-                phone = None
                 full_name = ''
+                phone = None
 
-                if cols['phone'] is not None and cols['phone'] < len(row):
-                    phone = normalize_phone(row[cols['phone']].strip())
                 if cols['full_name'] is not None and cols['full_name'] < len(row):
                     full_name = row[cols['full_name']].strip()
+                if cols['phone'] is not None and cols['phone'] < len(row):
+                    phone = normalize_phone(row[cols['phone']].strip())
 
                 if not full_name and not phone:
                     continue
@@ -137,7 +165,7 @@ async def import_data_file(file_path: str, conn):
         return 0
 
 async def main():
-    print("🔥 УНИВЕРСАЛЬНЫЙ ИМПОРТ (С ФИКСОМ ДЛИННЫХ СТРОК)")
+    print("🔥 УНИВЕРСАЛЬНЫЙ ИМПОРТ (АВТОМАТИЧЕСКИЙ ПОИСК КОЛОНОК)")
     print("═" * 60)
     if not os.path.exists(INPUT_FOLDER):
         os.makedirs(INPUT_FOLDER)
